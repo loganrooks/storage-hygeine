@@ -3,6 +3,37 @@
 
 ## Test Execution Results
 <!-- Append test run summaries using the format below -->
+### Test Execution: Unit - [2025-04-29 22:57:37]
+- **Trigger**: Manual TDD Cycle 5 (AnalysisEngine - Old File Rule)
+- **Outcome**: PASS / **Summary**: [5 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_analyze_identifies_old_files` passed after implementing `_apply_old_file_rule` and fixing previous tool errors.
+### Test Execution: Unit - [2025-04-29 22:54:22]
+- **Trigger**: Manual TDD Cycle 4 (AnalysisEngine - Large File Rule)
+- **Outcome**: PASS / **Summary**: [4 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_analyze_identifies_large_files` passed after implementing `_apply_large_file_rule`.
+### Test Execution: Unit - [2025-04-29 22:52:48]
+- **Trigger**: Manual TDD Cycle 3 Refactor (AnalysisEngine - Duplicate Rule)
+- **Outcome**: PASS / **Summary**: [3 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Tests passed after refactoring duplicate logic into `_apply_duplicate_rule`.
+
+### Test Execution: Unit - [2025-04-29 22:52:24]
+- **Trigger**: Manual TDD Cycle 3 (AnalysisEngine - Duplicate Rule)
+- **Outcome**: PASS / **Summary**: [3 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_analyze_identifies_duplicate_files` passed after implementing duplicate detection logic.
+### Test Execution: Unit - [2025-04-29 22:50:35]
+- **Trigger**: Manual TDD Cycle 2 (AnalysisEngine - Load Rules)
+- **Outcome**: PASS / **Summary**: [2 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_analysis_engine_loads_rules_from_config` passed after implementing rule loading in `_load_rules`.
+### Test Execution: Unit - [2025-04-29 22:49:08]
+- **Trigger**: Manual TDD Cycle 1 (AnalysisEngine - Init)
+- **Outcome**: PASS / **Summary**: [1 test passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_analysis_engine_initialization` passed after minimal `AnalysisEngine` class implementation.
 ### Test Execution: Unit - [2025-04-29 22:44:37]
 - **Trigger**: Manual TDD Cycle 6 (Scanner - Error Handling)
 - **Outcome**: PASS / **Summary**: [4 tests passed, 0 failed]
@@ -215,11 +246,29 @@
 - **Green**: Modified `scan_directory` to use `item_path.stat()` to get `st_size` and `st_mtime`. Converted `mtime` to timezone-aware UTC `datetime`. Passed these values to `upsert_file_record`. Added basic `try...except OSError` around `stat()`. Test passed. / Code File: `src/storage_hygiene/scanner.py`
 - **Refactor**: No refactoring needed. / Files Changed: `[]`
 - **Outcome**: Cycle 3 completed, tests passing. Confirmed collection and passing of basic metadata (size, mtime).
+### TDD Cycle: AnalysisEngine - Old File Rule - [2025-04-29 22:57:37]
+- **Red**: Added test `test_analyze_identifies_old_files`. Failed with `AssertionError: Expected 'query_files' to have been called once. Called 0 times.`. / Test File: `tests/test_analysis_engine.py`
+- **Green**: Implemented `_apply_old_file_rule` method, calling `metadata_store.query_files()` and generating `review_old` actions based on `last_modified` date and `max_days` threshold. Fixed indentation/duplication issues caused by previous tool errors. All 5 tests passed. / Code File: `src/storage_hygiene/analysis_engine.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 5 completed, tests passing. Confirmed old file identification and action generation.
+- **Related Requirements**: [AE_Analyze_Old] in `pseudocode/analysis_engine.pseudo`
+### TDD Cycle: AnalysisEngine - Large File Rule - [2025-04-29 22:54:22]
+- **Red**: Added test `test_analyze_identifies_large_files`. Failed with `AssertionError: Expected 'query_files' to have been called once. Called 0 times.`. / Test File: `tests/test_analysis_engine.py`
+- **Green**: Implemented `_apply_large_file_rule` method, calling `metadata_store.query_files()` and generating `review_large` actions based on size threshold. All 4 tests passed. / Code File: `src/storage_hygiene/analysis_engine.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 4 completed, tests passing. Confirmed large file identification and action generation.
+- **Related Requirements**: [AE_Analyze_Large] in `pseudocode/analysis_engine.pseudo`
 - **Related Requirements**: [SCAN_CollectMeta], [SCAN_InteractMS] in `pseudocode/scanner.pseudo`
 - **Red**: Added test `test_scan_directory_finds_files_and_calls_upsert`. Failed with `AttributeError: 'Scanner' object has no attribute 'scan_directory'`. / Test File: `tests/test_scanner.py`
 - **Green**: Implemented minimal `scan_directory` method using `pathlib.Path.rglob('*')` to find files and calling `self.metadata_store.upsert_file_record` with just the resolved `file_path`. Test passed. / Code File: `src/storage_hygiene/scanner.py`
 - **Refactor**: No refactoring needed. / Files Changed: `[]`
 - **Outcome**: Cycle 2 completed, tests passing. Confirmed basic directory traversal and interaction with MetadataStore mock.
+### TDD Cycle: AnalysisEngine - Duplicate Rule - [2025-04-29 22:52:48]
+- **Red**: Added test `test_analyze_identifies_duplicate_files`. Failed with `AssertionError: Expected 'get_duplicates' to have been called once. Called 0 times.`. / Test File: `tests/test_analysis_engine.py`
+- **Green**: Implemented duplicate detection logic in `analyze` method, calling `metadata_store.get_duplicates()` and generating `stage_duplicate` actions. All 3 tests passed. / Code File: `src/storage_hygiene/analysis_engine.py`
+- **Refactor**: Extracted duplicate detection logic into `_apply_duplicate_rule` method. Tests passed. / Files Changed: `['src/storage_hygiene/analysis_engine.py']`
+- **Outcome**: Cycle 3 completed, tests passing. Confirmed duplicate file identification and action generation. Logic refactored.
+- **Related Requirements**: [AE_Analyze_Duplicates] in `pseudocode/analysis_engine.pseudo`
 - **Related Requirements**: [SCAN_Traverse], [SCAN_InteractMS] (partially) in `pseudocode/scanner.pseudo`
 - **Red**: Wrote failing test `test_scanner_initialization` in `tests/test_scanner.py`. Pytest skipped the test as `Scanner` class was not found. / Test File: `tests/test_scanner.py`
 - **Green**: Created minimal `Scanner` class in `src/storage_hygiene/scanner.py` with `__init__` accepting `config_manager` and `metadata_store`. Test passed. / Code File: `src/storage_hygiene/scanner.py`
@@ -231,6 +280,18 @@
 
 ## TDD Cycles Log
 <!-- Append TDD cycle outcomes using the format below -->
+### TDD Cycle: AnalysisEngine - Load Rules - [2025-04-29 22:50:35]
+- **Red**: Added test `test_analysis_engine_loads_rules_from_config`. Failed with `AssertionError: Expected 'get' to be called once. Called 0 times.`. / Test File: `tests/test_analysis_engine.py`
+- **Green**: Modified `_load_rules` in `AnalysisEngine` to call `self.config_manager.get('analysis.rules', {})`. Both tests passed. / Code File: `src/storage_hygiene/analysis_engine.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 2 completed, tests passing. Confirmed rule loading from ConfigManager.
+- **Related Requirements**: [AE_LoadRules] in `pseudocode/analysis_engine.pseudo`
+### TDD Cycle: AnalysisEngine - Init - [2025-04-29 22:49:08]
+- **Red**: Wrote failing test `test_analysis_engine_initialization` in `tests/test_analysis_engine.py`. Test failed as `AnalysisEngine` class was not found. / Test File: `tests/test_analysis_engine.py`
+- **Green**: Created minimal `AnalysisEngine` class in `src/storage_hygiene/analysis_engine.py` with `__init__` accepting `config_manager` and `metadata_store`, and placeholder `_load_rules` and `analyze` methods. Test passed. / Code File: `src/storage_hygiene/analysis_engine.py`
+- **Refactor**: No refactoring needed for this minimal implementation. / Files Changed: `[]`
+- **Outcome**: Cycle 1 completed, test passing. Confirmed basic class structure and dependency injection.
+- **Related Requirements**: [AE_Init] in `pseudocode/analysis_engine.pseudo`
 ### TDD Cycle: Credential Placeholder Handling - [2025-04-29 21:25:27]
 - **Red**: Added test `test_get_credential_placeholder` to ensure `get()` returns raw placeholder strings. / Test File: `tests/test_config_manager.py`
 - **Green**: Test passed immediately. The existing `get()` method correctly retrieves the value from the dictionary, which is the placeholder string itself, without attempting resolution. All 6 tests passed. / Code File: `src/storage_hygiene/config_manager.py`
