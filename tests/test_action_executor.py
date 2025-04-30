@@ -13,7 +13,8 @@ def test_action_executor_initialization():
     """
     mock_config_manager = Mock()
     # Test will fail here initially as ActionExecutor doesn't exist yet
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
     assert executor is not None
     assert executor.config_manager == mock_config_manager
 
@@ -31,19 +32,20 @@ def test_execute_actions_retrieves_config(mocker): # Use pytest-mock fixture
     mock_config_manager = mocker.Mock()
     # Configure return values for expected calls
     mock_config_manager.get.side_effect = lambda key, default=None: {
-        'action.staging_dir': '/tmp/staging',
-        'action.dry_run': False
+        'action_executor.staging_dir': '/tmp/staging', # Corrected key
+        'action_executor.dry_run': False # Corrected key
     }.get(key, default)
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     # Call execute_actions with an empty list for now
-    executor.execute_actions([])
+    executor.execute_actions({}) # Pass empty dict, not list
 
     # Assert that config_manager.get was called correctly
     expected_calls = [
-        call('action.staging_dir', Path('./.storage_hygiene_staging')), # Default from pseudo
-        call('action.dry_run', False) # Default from pseudo
+        call('action_executor.staging_dir', './.storage_hygiene_staging'), # Expect string default as used in ActionExecutor
+        call('action_executor.dry_run', False) # Corrected key
     ]
     mock_config_manager.get.assert_has_calls(expected_calls, any_order=True)
 # ... (keep existing tests)
@@ -55,14 +57,15 @@ def test_execute_actions_dispatches_stage_duplicate(mocker):
     """
     mock_config_manager = mocker.Mock()
     mock_config_manager.get.side_effect = lambda key, default=None: {
-        'action.staging_dir': '/tmp/staging',
-        'action.dry_run': False
+        'action_executor.staging_dir': './.storage_hygiene_staging', # Corrected key and use default path
+        'action_executor.dry_run': False # Corrected key
     }.get(key, default)
 
     # Mock the internal method we expect to be called *before* instance creation
     mock_stage_method = mocker.patch('storage_hygiene.action_executor.ActionExecutor._stage_duplicate', return_value=None)
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     action_details = {
         'action': 'stage_duplicate',
@@ -72,10 +75,10 @@ def test_execute_actions_dispatches_stage_duplicate(mocker):
     }
     actions_list = [action_details]
 
-    executor.execute_actions(actions_list)
+    executor.execute_actions({'stage_duplicate': actions_list}) # Pass dict format
 
     # Assert that the *patched* method was called with the details
-    mock_stage_method.assert_called_once_with(action_details, Path('/tmp/staging'), False)
+    mock_stage_method.assert_called_once_with(action_details, Path('./.storage_hygiene_staging'), False) # Use default path
 # ... (keep existing tests)
 
 def test_stage_duplicate_moves_file(mocker):
@@ -93,7 +96,8 @@ def test_stage_duplicate_moves_file(mocker):
     mocker.patch('pathlib.Path.exists', return_value=False)
 
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     staging_dir = Path('/tmp/staging')
     dry_run = False
@@ -131,7 +135,8 @@ def test_stage_duplicate_dry_run_logs_and_skips_move(mocker):
     mock_move = mocker.patch('shutil.move')
     mock_print = mocker.patch('builtins.print') # Mock print for logging check
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     staging_dir = Path('/tmp/staging')
     dry_run = True # <--- Set dry_run to True
@@ -164,14 +169,15 @@ def test_execute_actions_dispatches_review_large(mocker):
     """
     mock_config_manager = mocker.Mock()
     mock_config_manager.get.side_effect = lambda key, default=None: {
-        'action.staging_dir': '/tmp/staging',
-        'action.dry_run': False
+        'action_executor.staging_dir': './.storage_hygiene_staging', # Corrected key and use default path
+        'action_executor.dry_run': False # Corrected key
     }.get(key, default)
 
     # Mock the internal method we expect to be called *before* instance creation
     mock_review_method = mocker.patch('storage_hygiene.action_executor.ActionExecutor._review_large', return_value=None)
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     action_details = {
         'action': 'review_large',
@@ -180,10 +186,10 @@ def test_execute_actions_dispatches_review_large(mocker):
     }
     actions_list = [action_details]
 
-    executor.execute_actions(actions_list)
+    executor.execute_actions({'review_large': actions_list}) # Pass dict format
 
     # Assert that the internal method was called with the details
-    mock_review_method.assert_called_once_with(action_details, Path('/tmp/staging'), False)
+    mock_review_method.assert_called_once_with(action_details, Path('./.storage_hygiene_staging'), False) # Use default path
 # ... (keep existing tests)
 
 def test_review_large_moves_file(mocker):
@@ -198,7 +204,8 @@ def test_review_large_moves_file(mocker):
     mock_move = mocker.patch('shutil.move')
     mocker.patch('pathlib.Path.exists', return_value=False) # Simulate dest not existing
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     staging_dir = Path('/tmp/staging')
     dry_run = False
@@ -228,14 +235,15 @@ def test_execute_actions_dispatches_review_old(mocker):
     """
     mock_config_manager = mocker.Mock()
     mock_config_manager.get.side_effect = lambda key, default=None: {
-        'action.staging_dir': '/tmp/staging',
-        'action.dry_run': False
+        'action_executor.staging_dir': './.storage_hygiene_staging', # Corrected key and use default path
+        'action_executor.dry_run': False # Corrected key
     }.get(key, default)
 
     # Mock the internal method we expect to be called *before* instance creation
     mock_review_method = mocker.patch('storage_hygiene.action_executor.ActionExecutor._review_old', return_value=None)
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     action_details = {
         'action': 'review_old',
@@ -244,10 +252,10 @@ def test_execute_actions_dispatches_review_old(mocker):
     }
     actions_list = [action_details]
 
-    executor.execute_actions(actions_list)
+    executor.execute_actions({'review_old': actions_list}) # Pass dict format
 
     # Assert that the internal method was called with the details
-    mock_review_method.assert_called_once_with(action_details, Path('/tmp/staging'), False)
+    mock_review_method.assert_called_once_with(action_details, Path('./.storage_hygiene_staging'), False) # Use default path
 # ... (keep existing tests)
 
 def test_review_old_moves_file(mocker):
@@ -260,7 +268,8 @@ def test_review_old_moves_file(mocker):
     # Mock the generic staging method we expect to be called
     mock_stage_file = mocker.patch.object(ActionExecutor, '_stage_file', return_value=None)
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     staging_dir = Path('/tmp/staging')
     dry_run = False
@@ -296,7 +305,8 @@ def test_stage_file_handles_file_not_found_error(mocker):
     mock_print = mocker.patch('builtins.print')
     mocker.patch('pathlib.Path.exists', return_value=False) # Dest doesn't exist
 
-    executor = ActionExecutor(config_manager=mock_config_manager)
+    mock_metadata_store = mocker.Mock() # Add mock store
+    executor = ActionExecutor(config_manager=mock_config_manager, metadata_store=mock_metadata_store)
 
     staging_dir = Path('/tmp/staging')
     dry_run = False
@@ -308,11 +318,12 @@ def test_stage_file_handles_file_not_found_error(mocker):
     }
     expected_dest_path = staging_dir / 'large_files' / file_path.name
 
-    # Call the method directly (or via a public method if preferred, but direct is fine for unit test)
-    executor._stage_file(action_details, staging_dir, dry_run, 'large_files', 'Staging large file')
+    # Call the method directly and assert that it raises the expected exception
+    with pytest.raises(FileNotFoundError, match="File not found"):
+        executor._stage_file(action_details, staging_dir, dry_run, 'large_files', 'Staging large file')
 
     # Assertions
     mock_makedirs.assert_called_once() # Make sure it tried to create the dir
     mock_move.assert_called_once_with(str(file_path), expected_dest_path) # Make sure it tried to move
-    # Check if the error message was printed (adjust based on actual print statement)
+    # Check if the error message was printed (it should be before the exception is raised)
     mock_print.assert_any_call(f"Error moving file {file_path} to {expected_dest_path}: File not found")
