@@ -2,12 +2,7 @@ import pytest
 from unittest.mock import MagicMock
 from datetime import datetime, timezone, timedelta
 
-# Assume AnalysisEngine will be in src.storage_hygiene.analysis_engine
-# We expect an ImportError initially
-try:
-    from src.storage_hygiene.analysis_engine import AnalysisEngine
-except ImportError:
-    AnalysisEngine = None # Allow tests to be defined even if class doesn't exist yet
+from storage_hygiene.analysis_engine import AnalysisEngine
 
 # Mock dependencies
 @pytest.fixture
@@ -111,9 +106,11 @@ def test_analyze_identifies_duplicate_files(mock_config_manager, mock_metadata_s
         {'action': 'stage_duplicate', 'path': '/yet/another/file5.bin', 'hash': 'hash789', 'original_path': '/another/path/file4.bin', 'reason': 'Duplicate of /another/path/file4.bin'},
     ]
 
-    # Use a set comparison to ignore order
-    assert len(action_candidates) == len(expected_actions)
-    assert set(tuple(sorted(d.items())) for d in action_candidates) == set(tuple(sorted(d.items())) for d in expected_actions)
+    # Check the 'stage_duplicate' list within the returned dict
+    duplicate_actions = action_candidates.get('stage_duplicate', [])
+    assert len(duplicate_actions) == len(expected_actions)
+    # Convert dicts to comparable tuples of sorted items for set comparison
+    assert set(tuple(sorted(d.items())) for d in duplicate_actions) == set(tuple(sorted(d.items())) for d in expected_actions)
     assert engine.metadata_store is mock_metadata_store
 def test_analyze_identifies_large_files(mock_config_manager, mock_metadata_store):
     """
@@ -136,10 +133,10 @@ def test_analyze_identifies_large_files(mock_config_manager, mock_metadata_store
 
     # Configure metadata store mock to return files of various sizes
     mock_metadata_store.query_files.return_value = [
-        {'path': '/path/to/small_file.txt', 'hash': 'hash1', 'size': 10 * 1024 * 1024, 'last_modified': datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)},
-        {'path': '/path/to/large_video.mp4', 'hash': 'hash2', 'size': 150 * 1024 * 1024, 'last_modified': datetime(2024, 1, 2, 11, 0, 0, tzinfo=timezone.utc)},
-        {'path': '/path/to/exact_size_file.iso', 'hash': 'hash3', 'size': min_size_bytes, 'last_modified': datetime(2024, 1, 3, 12, 0, 0, tzinfo=timezone.utc)}, # Exactly at threshold
-        {'path': '/path/to/another_large.zip', 'hash': 'hash4', 'size': 60 * 1024 * 1024, 'last_modified': datetime(2024, 1, 4, 13, 0, 0, tzinfo=timezone.utc)}, # Slightly above threshold
+        {'path': '/path/to/small_file.txt', 'hash': 'hash1', 'size_bytes': 10 * 1024 * 1024, 'last_modified': datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)},
+        {'path': '/path/to/large_video.mp4', 'hash': 'hash2', 'size_bytes': 150 * 1024 * 1024, 'last_modified': datetime(2024, 1, 2, 11, 0, 0, tzinfo=timezone.utc)},
+        {'path': '/path/to/exact_size_file.iso', 'hash': 'hash3', 'size_bytes': min_size_bytes, 'last_modified': datetime(2024, 1, 3, 12, 0, 0, tzinfo=timezone.utc)}, # Exactly at threshold
+        {'path': '/path/to/another_large.zip', 'hash': 'hash4', 'size_bytes': 60 * 1024 * 1024, 'last_modified': datetime(2024, 1, 4, 13, 0, 0, tzinfo=timezone.utc)}, # Slightly above threshold
     ]
     # Mock get_duplicates to return empty if called (it shouldn't be)
     mock_metadata_store.get_duplicates.return_value = {}
@@ -164,10 +161,11 @@ def test_analyze_identifies_large_files(mock_config_manager, mock_metadata_store
         # Note: The file exactly at the threshold is NOT included
     ]
 
-    # Use a set comparison to ignore order
-    assert len(action_candidates) == len(expected_actions)
-    # Convert dicts to comparable tuples of sorted items
-    action_candidates_set = set(tuple(sorted(d.items())) for d in action_candidates)
+    # Check the 'review_large' list within the returned dict
+    large_actions = action_candidates.get('review_large', [])
+    assert len(large_actions) == len(expected_actions)
+    # Convert dicts to comparable tuples of sorted items for set comparison
+    action_candidates_set = set(tuple(sorted(d.items())) for d in large_actions)
     expected_actions_set = set(tuple(sorted(d.items())) for d in expected_actions)
     assert action_candidates_set == expected_actions_set
 def test_analyze_identifies_old_files(mock_config_manager, mock_metadata_store):
@@ -221,8 +219,21 @@ def test_analyze_identifies_old_files(mock_config_manager, mock_metadata_store):
         {'action': 'review_old', 'path': '/path/to/boundary_file.log', 'last_modified': mock_metadata_store.query_files.return_value[3]['last_modified'], 'reason': f'File older than {max_days} days'},
     ]
 
-    # Use a set comparison to ignore order
-    assert len(action_candidates) == len(expected_actions)
-    action_candidates_set = set(tuple(sorted(d.items())) for d in action_candidates)
-    expected_actions_set = set(tuple(sorted(d.items())) for d in expected_actions)
+    # Check the 'review_old' list within the returned dict
+    old_actions = action_candidates.get('review_old', [])
+    assert len(old_actions) == len(expected_actions)
+    # Convert dicts to comparable tuples of sorted items for set comparison
+    # Need to handle datetime objects carefully in comparison
+    def make_comparable(item):
+        if isinstance(item, datetime):
+            # Convert datetime to a standard string format for comparison
+            return item.isoformat()
+        return item
+
+    action_candidates_set = set(
+        tuple(sorted((k, make_comparable(v)) for k, v in d.items())) for d in old_actions
+    )
+    expected_actions_set = set(
+        tuple(sorted((k, make_comparable(v)) for k, v in d.items())) for d in expected_actions
+    )
     assert action_candidates_set == expected_actions_set
