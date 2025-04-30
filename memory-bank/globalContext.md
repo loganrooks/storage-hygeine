@@ -2,6 +2,25 @@
 <!-- Entries below should be added reverse chronologically (newest first) -->
 
 # System Patterns
+<!-- Entries below should be added reverse chronologically (newest first) -->
+### Dependency Map (Current - Overwrite this section) - 2025-04-29 23:45:11
+```mermaid
+graph TD
+    subgraph Core Workflow
+        CLI --> MainPy[main.py];
+        MainPy --> ConfigManager[ConfigManager];
+        MainPy --> MetadataStore[MetadataStore];
+        MainPy --> Scanner[Scanner];
+        MainPy --> AnalysisEngine[AnalysisEngine];
+        MainPy --> ActionExecutor[ActionExecutor];
+        Scanner --> ConfigManager;
+        Scanner --> MetadataStore;
+        AnalysisEngine --> ConfigManager;
+        AnalysisEngine --> MetadataStore;
+        ActionExecutor --> ConfigManager;
+    end
+```
+
 ### [2025-04-29 18:51:04] Initial Architecture: Storage Hygiene System
 - **Description:** A modular system for scanning, analyzing, reviewing, and acting upon files across local and cloud storage. Components include Scanner, Analysis Engine, UI, Executor, Config Manager, and optional AI Assistant.
 - **Diagram:** [See Architect Specific Memory Diagram: Storage Hygiene System - 2025-04-29 18:51:04]
@@ -72,3 +91,8 @@
 
 # Progress
 <!-- Entries below should be added reverse chronologically (newest first) -->
+### [2025-04-29 23:45:11] - Integration: Core Component Workflow
+- **Status:** Completed & Tested (Dry Run)
+- **Details:** Created `main.py` script to orchestrate `ConfigManager`, `MetadataStore`, `Scanner`, `AnalysisEngine`, `ActionExecutor`. Added CLI argument parsing (`argparse`). Updated `__init__.py`. Created and passed integration test `test_main_workflow_dry_run`. Fixed multiple interface mismatches identified during testing.
+- **Files:** `src/storage_hygiene/main.py`, `src/storage_hygiene/__init__.py`, `tests/integration/test_main_workflow.py`
+- **Related:** Integration Point: Main Script Orchestration - 2025-04-29 23:45:11
