@@ -1,5 +1,9 @@
 # SPARC Orchestrator Feedback
 <!-- Entries below should be added reverse chronologically (newest first) -->
+### [2025-04-29 21:01:03] Feedback: Oversized TDD Task Delegation
+- **Source:** User Denial of `new_task` (TDD Implementation)
+- **Issue:** The delegated task to implement all core components via TDD was too large and lacked granularity. User requested smaller, incremental TDD cycles.
+- **Action:** Will break down TDD implementation into smaller, component-focused or feature-focused tasks. Will log this intervention and adjust the delegation strategy.
 ### [2025-04-29 19:05:07] User Feedback: Insufficient Detail in Delegation
 - **Source:** User Feedback after `new_task` delegation to Architect mode was denied.
 - **Issue:** User stated the instructions provided in the `new_task` message lacked sufficient detail ("more details in the instructions").

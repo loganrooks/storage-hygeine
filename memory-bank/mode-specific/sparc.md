@@ -14,6 +14,51 @@
 - **Rationale**: SPARC Orchestrator must delegate tasks to appropriate modes, not execute them directly or allow modes switched to for utility purposes (like MB creation) to take over primary tasks without explicit delegation.
 - **Outcome**: Corrective action initiated (delegation).
 - **Follow-up**: Ensure future mode switches for utility tasks are followed by a switch back and proper delegation via `new_task`. Monitor SPARC behavior for adherence to delegation role. [See Feedback: 2025-04-29 19:03:42]
+### [2025-04-29 21:01:14] Intervention: Oversized TDD Task Delegation
+- **Trigger**: User Denial of `new_task`
+- **Context**: Attempted to delegate implementation of all core components to `tdd` mode in a single task.
+- **Action Taken**: Halted delegation. Logged feedback. Will revise delegation strategy.
+- **Rationale**: Task scope was too large, violating modularity principles and user preference for incremental steps.
+- **Outcome**: Delegation denied. Workflow adjusted.
+- **Follow-up**: Break down TDD implementation into smaller, component-focused tasks. Re-delegate starting with a single component. [See Feedback: 2025-04-29 21:01:03]
+## Workflow State
+# Workflow State (Current - Overwrite this section)
+- Current phase: Testing
+- Phase start: [2025-04-29 20:54:35]
+- Current focus: Prepare delegation for TDD implementation based on generated pseudocode.
+- Next actions: Delegate TDD task to `tdd` mode.
+- Last Updated: [2025-04-29 20:54:35]
+
+## Delegations Log
+### [2025-04-29 21:01:50] Task: TDD Implementation - ConfigManager
+- Assigned to: tdd
+- Description: Implement the `ConfigManager` component using a Test-Driven Development (TDD) approach (London School). Focus specifically on loading, validating, accessing, and potentially saving configuration settings (e.g., scan paths, rules, credentials placeholders - **NO ACTUAL SECRETS**). Use `pseudocode/config_manager.pseudo` and its TDD anchors as a guide. Implement in Python using `pytest`.
+- Expected deliverable: Python source code (`src/storage_hygiene/config_manager.py`), corresponding test file (`tests/test_config_manager.py`) with passing tests covering core functionality (loading default/user config, validation, access methods). Update `requirements.txt` if new dependencies are added. Update `memory-bank/mode-specific/tdd.md`.
+- Status: pending
+- Completion time: N/A
+- Outcome: N/A
+- Link to Progress Entry: N/A
+- Link to Pseudocode: [See `pseudocode/config_manager.pseudo`], [See `memory-bank/mode-specific/spec-pseudocode.md`]
+- Link to Architecture: [See `docs/architecture/architecture_report.md`], [See ADR-002 `docs/architecture/adr/002-credential-management.md`]
+### [2025-04-29 20:56:10] Task: TDD Implementation - Storage Hygiene System (Core Components)
+- Assigned to: tdd
+- Description: Implement the core components (Scanner, Analysis Engine, Metadata Store, Action Executor, Config Manager, CLI Handlers) using a Test-Driven Development (TDD) approach. Follow the London School TDD style (outside-in). Use the generated pseudocode (`pseudocode/*.pseudo`) and TDD anchors as a guide. Implement in Python.
+- Expected deliverable: Python source code files (`src/storage_hygiene/*.py`) and corresponding test files (`tests/test_*.py`) for each component, ensuring tests pass. Update `memory-bank/mode-specific/tdd.md`.
+- Status: failed
+- Completion time: [2025-04-29 21:00:48]
+- Outcome: Denied by user - Task scope too large. See intervention [2025-04-29 21:01:14].
+- Link to Progress Entry: N/A
+- Link to Pseudocode: [See `pseudocode/*.pseudo`], [See `memory-bank/mode-specific/spec-pseudocode.md`]
+- Link to Architecture: [See `docs/architecture/architecture_report.md`], [See `docs/architecture/adr/`], [See `memory-bank/globalContext.md` System Patterns/Decision Log entries from 2025-04-29 19:34:11 onwards], [See `memory-bank/mode-specific/architect.md`]
+### [2025-04-29 20:20:51] Task: Generate Pseudocode - Storage Hygiene System
+- Assigned to: spec-pseudocode
+- Description: Generate detailed, modular pseudocode with TDD anchors for the Storage Hygiene System based on the approved architecture. Focus on the core components: Scanner, Analysis Engine, Metadata Store (DuckDB interactions), Action Executor, Config Manager, and CLI commands.
+- Expected deliverable: Pseudocode files (e.g., `pseudocode/scanner.pseudo`, `pseudocode/analysis.pseudo`, etc.) covering key functions and logic flows, including TDD anchors. Update `memory-bank/mode-specific/spec-pseudocode.md`.
+- Status: completed
+- Completion time: [2025-04-29 20:54:22]
+- Outcome: Success. Pseudocode generated for core components (`pseudocode/*.pseudo`) and committed along with MB update.
+- Link to Progress Entry: N/A
+- Link to Architecture: [See `docs/architecture/architecture_report.md`], [See `docs/architecture/adr/`], [See `memory-bank/globalContext.md` System Patterns/Decision Log entries from 2025-04-29 19:34:11 onwards], [See `memory-bank/mode-specific/architect.md`]
 ### [2025-04-29 19:04:22] Task: Architecture Design - Storage Hygiene System
 - Assigned to: architect
 - Description: Design a high-level architecture for the Storage Hygiene System based on the initial user requirements (scanning local/external/cloud, analysis for deletion/migration, staging area, optional AI integration, cloud migration focus). Address component responsibilities, data flow, interfaces, and key considerations (security, scalability, error handling).
