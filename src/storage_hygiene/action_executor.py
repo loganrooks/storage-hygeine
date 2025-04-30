@@ -8,15 +8,17 @@ class ActionExecutor:
     """
     Executes actions based on analysis results and configuration.
     """
-    def __init__(self, config_manager):
+    def __init__(self, config_manager, metadata_store):
         """
         Initializes the ActionExecutor.
 
         Args:
-            config_manager: An instance of ConfigManager (or a compatible mock).
+            config_manager: An instance of ConfigManager.
+            metadata_store: An instance of MetadataStore.
                             TDD Anchor: [AX_Init]
         """
         self.config_manager = config_manager
+        self.metadata_store = metadata_store # Store metadata_store instance
         # Map action types to handler methods
         self._action_handlers = {
             'stage_duplicate': self._stage_duplicate,
@@ -26,33 +28,51 @@ class ActionExecutor:
         # Placeholder for logger setup
         # self.logger = logging.getLogger(__name__)
 
-    def execute_actions(self, actions):
+    def execute_actions(self, actions: dict, dry_run_override: bool | None = None):
         """
-        Executes a list of actions.
+        Executes actions based on the analysis results dictionary.
         TDD Anchor: [AX_Execute], [AX_LoadConfig]
 
         Args:
-            actions: A list of action dictionaries.
+            actions: A dictionary where keys are action types and values are lists
+                     of file info dictionaries.
+            dry_run_override: If True or False, overrides the dry_run setting from config.
+                              If None, uses the config setting.
         """
-        staging_dir = self.config_manager.get('action.staging_dir', Path('./.storage_hygiene_staging'))
-        dry_run = self.config_manager.get('action.dry_run', False)
+        # Correctly indent the method body
+        staging_dir = self.config_manager.get('action_executor.staging_dir', './.storage_hygiene_staging') # Match config key used in test
+        # Determine final dry_run status
+        if dry_run_override is not None:
+            dry_run = dry_run_override
+            print(f"Using dry_run override: {dry_run}") # Placeholder log
+        else:
+            dry_run = self.config_manager.get('action_executor.dry_run', False) # Match config key used in test
+            print(f"Using dry_run from config: {dry_run}") # Placeholder log
+
         staging_dir_path = Path(staging_dir) # Convert to Path object
 
         # Action loop and dispatch using handler map
-        for action_details in actions:
-            action_type = action_details.get('action')
+        # Iterate through the dictionary provided by AnalysisEngine
+        for action_type, file_list in actions.items():
             handler = self._action_handlers.get(action_type)
             if handler:
-                try:
-                    handler(action_details, staging_dir_path, dry_run)
-                except Exception as e:
-                    # Basic error logging for now
-                    print(f"Error executing action {action_type} for {action_details.get('path')}: {e}")
-                    # self.logger.error(f"Error executing action {action_type} for {action_details.get('path')}: {e}", exc_info=True)
+                for action_details in file_list: # Process each file for this action type
+                    try:
+                        # Pass the final dry_run value to the handler
+                        handler(action_details, staging_dir_path, dry_run)
+                    except OSError as e: # Catch OSError specifically
+                        # Log the critical file system error
+                        print(f"Critical error during action {action_type} for {action_details.get('path')}: {e}")
+                        # self.logger.critical(f"Critical error during action {action_type} for {action_details.get('path')}: {e}", exc_info=True)
+                        raise # Re-raise OSError to halt execution
+                    except Exception as e:
+                        # Log other non-critical errors but continue processing other files/actions
+                        print(f"Non-critical error executing action {action_type} for {action_details.get('path')}: {e}")
+                        # self.logger.error(f"Non-critical error executing action {action_type} for {action_details.get('path')}: {e}", exc_info=True)
             else:
                 # Log unknown action type
                 print(f"Unknown action type '{action_type}' encountered.")
-                # self.logger.warning(f"Unknown action type '{action_type}' encountered for path {action_details.get('path')}")
+                # self.logger.warning(f"Unknown action type '{action_type}' encountered.") # Path is not directly available here
 
     # Placeholder implementations for action methods
     def _get_staging_path(self, sub_dir_type, staging_dir, file_path_obj, file_hash=None):
@@ -110,12 +130,23 @@ class ActionExecutor:
                     shutil.move(str(file_path_obj), dest_path)
                     # self.logger.info(f"Successfully moved {file_path_obj} to {dest_path}")
                     print(f"Successfully moved {file_path_obj} to {dest_path}") # Placeholder log
+                    # Update the path in the metadata store
+                    try:
+                        # Use normalized old path for lookup
+                        normalized_old_path = os.path.normcase(str(file_path_obj))
+                        # Store normalized new path
+                        normalized_new_path = os.path.normcase(str(dest_path))
+                        self.metadata_store.update_file_path(old_path=normalized_old_path, new_path=normalized_new_path)
+                    except Exception as db_e:
+                        # self.logger.error(f"Failed to update database path for {normalized_old_path} after move: {db_e}", exc_info=True)
+                        print(f"Error updating database path for {file_path_obj} after move: {db_e}") # Placeholder log
                 else:
                     # self.logger.warning(f"Destination {dest_path} already exists. Skipping move for {file_path_obj}.")
                     print(f"Warning: Destination {dest_path} already exists. Skipping move for {file_path_obj}.") # Placeholder log
             except OSError as e:
                 # self.logger.error(f"Error moving file {file_path_obj} to {dest_path}: {e}", exc_info=True)
                 print(f"Error moving file {file_path_obj} to {dest_path}: {e}") # Placeholder log
+                raise # Re-raise OSError to signal failure up the chain
             except Exception as e:
                 # self.logger.error(f"Unexpected error staging file {file_path_obj}: {e}", exc_info=True)
                 print(f"Unexpected error staging file {file_path_obj}: {e}") # Placeholder log
