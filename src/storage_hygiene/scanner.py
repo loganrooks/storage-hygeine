@@ -66,7 +66,9 @@ class Scanner:
             last_modified = datetime.fromtimestamp(mtime_ts, tz=timezone.utc)
 
             # Check metadata store for existing record (Incremental Scan Logic)
-            existing_records = self.metadata_store.query_files(path=resolved_path)
+            # Pass normalized path string within the criteria dictionary
+            normalized_path_str = os.path.normcase(str(resolved_path))
+            existing_records = self.metadata_store.query_files(criteria={'path': normalized_path_str})
             existing_record = existing_records[0] if existing_records else None
 
             # Compare metadata if record exists
@@ -84,13 +86,19 @@ class Scanner:
             # If no record or metadata mismatch, proceed with hashing and upsert
             hash_value = self._calculate_hash(item_path)
 
-            # Call upsert with collected metadata and hash
-            self.metadata_store.upsert_file_record(
-                file_path=resolved_path,
-                size=size,
-                last_modified=last_modified,
-                hash_value=hash_value
-            )
+            # Prepare metadata dictionary
+            file_metadata = {
+                'path': normalized_path_str, # Store normalized path string
+                'filename': item_path.name,
+                'size_bytes': size,
+                'last_modified': last_modified,
+                'hash': hash_value, # Revert to 'hash' as expected by MetadataStore
+                'last_scanned': datetime.now(timezone.utc) # Add current scan time
+            }
+
+            # Call upsert with the metadata dictionary
+            self.metadata_store.upsert_file_record(file_metadata=file_metadata)
+
         except OSError as e:
             # Handle potential errors during stat() or hashing
             print(f"Error processing file {item_path}: {e}")
