@@ -1,0 +1,342 @@
+// File: pseudocode/scanner.pseudo
+// Component: Scanner Service (Pool & Workers)
+
+// --- Constants ---
+CONSTANT HASH_CHUNK_SIZE = 4 * 1024 * 1024 // 4MB chunks for hashing
+CONSTANT DB_QUEUE_SENTINEL = None // From metadata_store.pseudo
+
+// --- Data Structures ---
+// FileMetadataDict (Matches Scanner Output Queue Item - see metadata_store.pseudo)
+// ConfigManager (Provides scan paths, credentials - see config_manager.pseudo)
+// DBConnection (For read-only incremental checks - needs careful connection management across processes)
+// Queue (Multiprocessing queue for results)
+// CloudClient (Abstract representation of OneDrive/GDrive SDK client)
+
+// --- Module: ScannerService ---
+
+CLASS ScannerService:
+    PRIVATE config_manager: ConfigManager
+    PRIVATE db_path: String
+    PRIVATE output_queue: Queue
+    PRIVATE process_pool: ProcessPoolExecutor // Or multiprocessing.Pool
+    PRIVATE scan_session_id: String
+
+    FUNCTION __init__(config_manager: ConfigManager, output_queue: Queue):
+        self.config_manager = config_manager
+        self.db_path = config_manager.get_db_path()
+        self.output_queue = output_queue
+        // Determine optimal number of worker processes
+        num_workers = calculate_optimal_workers() 
+        self.process_pool = ProcessPoolExecutor(max_workers=num_workers)
+        // TDD: Test pool initialization with calculated workers.
+
+    FUNCTION start_scan(scan_paths: List[String] = None, full_rescan: Boolean = False):
+        // Generates a unique ID for this scan run
+        self.scan_session_id = generate_uuid() 
+        log_info("Starting scan session: " + self.scan_session_id)
+
+        paths_to_scan = scan_paths IF scan_paths IS NOT None ELSE self.config_manager.get_scan_paths()
+        // TDD: Test uses provided paths if given.
+        // TDD: Test uses config paths if none provided.
+
+        IF len(paths_to_scan) == 0:
+            log_warning("No scan paths configured or provided. Scan aborted.")
+            RETURN
+
+        // Submit tasks to the process pool
+        futures = []
+        FOR path_uri IN paths_to_scan:
+            // Pass necessary info to worker: path, session ID, DB path (for reads), queue, config snapshot?, rescan flag
+            future = self.process_pool.submit(scan_worker_entrypoint, 
+                                               path_uri, 
+                                               self.scan_session_id, 
+                                               self.db_path, 
+                                               self.output_queue, 
+                                               full_rescan,
+                                               self.config_manager) // Pass config or relevant parts carefully
+            futures.append(future)
+            // TDD: Test submitting local path task.
+            // TDD: Test submitting cloud path task (e.g., "onedrive:/").
+
+        // Wait for all tasks to complete (optional, could monitor progress)
+        wait_for_all_futures(futures) 
+        log_info("Scan tasks submitted. Workers processing.")
+        // TDD: Test waits for futures if required by design.
+
+        // Signal DB writer that scanning is done (might be done elsewhere, e.g., main CLI orchestrator)
+        // self.output_queue.put(DB_QUEUE_SENTINEL) 
+
+    FUNCTION shutdown():
+        log_info("Shutting down scanner process pool...")
+        self.process_pool.shutdown(wait=True)
+        log_info("Scanner process pool shut down.")
+        // TDD: Test shutdown waits for pool completion.
+
+// --- Worker Process Logic ---
+
+FUNCTION scan_worker_entrypoint(path_uri: String, scan_session_id: String, db_path: String, output_queue: Queue, full_rescan: Boolean, config_manager: ConfigManager):
+    // Entry point for each worker process. Sets up DB connection for reads.
+    db_conn_read = None
+    TRY
+        // Each worker needs its own read connection if querying directly
+        db_conn_read = duckdb_connect(db_path, read_only=True) 
+        log_debug("Worker started for path: " + path_uri)
+
+        IF is_cloud_path(path_uri):
+            scan_cloud_location(path_uri, scan_session_id, db_conn_read, output_queue, full_rescan, config_manager)
+        ELSE:
+            scan_local_directory(path_uri, scan_session_id, db_conn_read, output_queue, full_rescan)
+        
+        log_debug("Worker finished for path: " + path_uri)
+
+    CATCH Exception as e:
+        log_error("Worker failed for path '" + path_uri + "': " + str(e))
+        // TDD: Test worker handles exceptions gracefully.
+    FINALLY:
+        IF db_conn_read IS NOT None:
+            db_conn_read.close()
+
+FUNCTION scan_local_directory(dir_path: String, scan_session_id: String, db_conn_read: DBConnection, output_queue: Queue, full_rescan: Boolean):
+    // Uses os.scandir for better performance than os.walk
+    TRY
+        FOR entry IN os_scandir(dir_path):
+            TRY
+                process_file_entry(entry.path, entry.is_dir(), entry.is_file(), entry.stat(), 
+                                   scan_session_id, db_conn_read, output_queue, full_rescan)
+                
+                IF entry.is_dir():
+                    // Recurse into subdirectory
+                    scan_local_directory(entry.path, scan_session_id, db_conn_read, output_queue, full_rescan)
+                    // TDD: Test recursion into subdirectories.
+
+            CATCH OSError as e: // Permissions error, etc. on stat() or scandir()
+                log_warning("Cannot access: " + entry.path + " - " + str(e))
+                // TDD: Test skipping inaccessible files/dirs.
+    CATCH OSError as e: // Error scanning the top-level dir_path itself
+         log_error("Failed to scan directory: " + dir_path + " - " + str(e))
+         // TDD: Test handling error scanning top-level directory.
+
+FUNCTION scan_cloud_location(cloud_uri: String, scan_session_id: String, db_conn_read: DBConnection, output_queue: Queue, full_rescan: Boolean, config_manager: ConfigManager):
+    // Example for a generic cloud provider
+    provider_type, base_path = parse_cloud_uri(cloud_uri) // e.g., "onedrive", "/Documents"
+    
+    TRY
+        client = get_cloud_client(provider_type, config_manager)
+        // TDD: Test getting correct cloud client.
+        IF client IS None:
+            log_error("Could not get cloud client for provider: " + provider_type)
+            RETURN
+
+        // Paginate through cloud directory listings
+        paginator = client.list_items(base_path) 
+        // TDD: Test listing items from cloud root/folder.
+        
+        FOR page IN paginator:
+            FOR item_info IN page: // item_info contains metadata from cloud API
+                full_cloud_path = construct_cloud_path(provider_type, item_info.path) // e.g., "onedrive:/Documents/file.txt"
+                
+                // Adapt process_file_entry to take cloud metadata directly
+                process_file_entry(full_cloud_path, item_info.is_directory, item_info.is_file, item_info, // Pass cloud metadata object
+                                   scan_session_id, db_conn_read, output_queue, full_rescan, is_cloud=True, cloud_client=client)
+
+                IF item_info.is_directory:
+                     // Recurse - construct new URI and call scan_cloud_location
+                     scan_cloud_location(full_cloud_path, scan_session_id, db_conn_read, output_queue, full_rescan, config_manager)
+                     // TDD: Test recursion into cloud subfolders.
+            // TDD: Test handling pagination correctly.
+
+    CATCH CloudAPIError as e:
+        log_error("Cloud API error scanning '" + cloud_uri + "': " + str(e))
+        // TDD: Test handling cloud API errors during listing.
+    CATCH AuthenticationError as e:
+        log_error("Cloud authentication error for '" + provider_type + "': " + str(e))
+        // TDD: Test handling cloud authentication errors.
+
+FUNCTION process_file_entry(path: String, is_dir: Boolean, is_file: Boolean, entry_info: Any, // os.DirEntry, stat_result, or cloud item object
+                           scan_session_id: String, db_conn_read: DBConnection, output_queue: Queue, full_rescan: Boolean, 
+                           is_cloud: Boolean = False, cloud_client: CloudClient = None):
+    
+    current_time = get_current_time()
+    existing_record = None
+    metadata = FileMetadataDict()
+    
+    // --- Incremental Check (ADR-004) ---
+    IF NOT full_rescan:
+        existing_record = query_db_for_path(db_conn_read, path)
+        // TDD: Test querying DB for existing path.
+        // TDD: Test handling DB query errors.
+
+    // --- Extract Basic Info ---
+    metadata['id'] = existing_record['id'] IF existing_record ELSE generate_uuid() // Reuse ID or create new
+    metadata['scan_session_id'] = scan_session_id
+    metadata['full_path'] = path
+    metadata['is_directory'] = is_dir
+    metadata['last_seen'] = current_time
+    metadata['first_seen'] = existing_record['first_seen'] IF existing_record ELSE current_time
+    
+    // --- Get Detailed Metadata & Check for Changes ---
+    needs_hash = False
+    IF is_file:
+        current_mtime = None
+        current_size = None
+        
+        TRY:
+            IF is_cloud:
+                // Cloud metadata already fetched in item_info
+                current_mtime = item_info.modified_time 
+                current_size = item_info.size_bytes
+                // Extract other metadata from item_info
+                metadata['created_time'] = item_info.created_time
+                metadata['accessed_time'] = None // Often not available/reliable in cloud
+                metadata['owner'] = item_info.owner 
+                metadata['permissions'] = None // Cloud permissions differ
+                metadata['mime_type'] = item_info.mime_type
+            ELSE:
+                // Local file - entry_info is stat_result
+                stat_result = entry_info 
+                current_mtime = stat_result.st_mtime
+                current_size = stat_result.st_size
+                metadata['created_time'] = stat_result.st_ctime
+                metadata['accessed_time'] = stat_result.st_atime
+                metadata['owner'] = get_file_owner(stat_result.st_uid) // OS specific lookup
+                metadata['permissions'] = format_permissions(stat_result.st_mode) // e.g., '0o755'
+                metadata['mime_type'] = detect_mime_type(path) // Use python-magic if needed
+            
+            metadata['size_bytes'] = current_size
+            metadata['modified_time'] = current_mtime
+            // TDD: Test extracting metadata for local file.
+            // TDD: Test extracting metadata for cloud file.
+
+            // Decide if hashing is needed
+            IF full_rescan OR existing_record IS None OR \
+               existing_record['modified_time'] != current_mtime OR \
+               existing_record['size_bytes'] != current_size:
+                needs_hash = True
+                // TDD: Test needs_hash=True for full rescan.
+                // TDD: Test needs_hash=True for new file.
+                // TDD: Test needs_hash=True if mtime differs.
+                // TDD: Test needs_hash=True if size differs.
+            ELSE:
+                // Unchanged: Reuse hash from DB
+                metadata['sha256_hash'] = existing_record['sha256_hash']
+                // Reuse other potentially expensive fields if policy allows
+                metadata['mime_type'] = existing_record['mime_type'] 
+                // TDD: Test needs_hash=False for unchanged file, reuses hash.
+
+        CATCH Exception as e: // Error getting local stat or parsing cloud info
+            log_warning("Metadata error for '" + path + "': " + str(e))
+            // Mark as error? Skip? Put minimal info? Decide policy.
+            metadata['analysis_flags'] = ['metadata_error'] 
+            // TDD: Test handling metadata extraction errors.
+
+    ELSE: // Is Directory
+        metadata['size_bytes'] = None
+        metadata['sha256_hash'] = None
+        // Extract other relevant dir metadata if needed
+        // TDD: Test processing a directory sets hash/size to None.
+
+    // --- Calculate Hash if Needed ---
+    IF needs_hash AND is_file:
+        TRY:
+            metadata['sha256_hash'] = calculate_sha256(path, is_cloud, cloud_client)
+            // TDD: Test hash calculation for local file.
+            // TDD: Test hash calculation for cloud file (requires mocking download).
+        CATCH Exception as e:
+            log_warning("Hashing error for '" + path + "': " + str(e))
+            metadata['sha256_hash'] = None
+            metadata['analysis_flags'] = list_append_unique(metadata.get('analysis_flags', []), 'hashing_error')
+            // TDD: Test handling hashing errors.
+
+    // --- Finalize and Queue ---
+    // Ensure defaults for optional fields if not set
+    metadata.setdefault('similarity_hash', None)
+    metadata.setdefault('similarity_group_id', None)
+    metadata.setdefault('analysis_flags', [])
+    metadata.setdefault('disorganization_metric_flags', [])
+    metadata.setdefault('ai_suggestion', None)
+
+    output_queue.put(metadata)
+    // TDD: Test final metadata dict is put on queue.
+
+FUNCTION calculate_sha256(path: String, is_cloud: Boolean, cloud_client: CloudClient = None): String
+    hasher = create_sha256_hasher()
+    file_stream = None
+    TRY
+        IF is_cloud:
+            // Stream download from cloud
+            file_stream = cloud_client.download_file_stream(path)
+            // TDD: Test cloud download stream opened.
+        ELSE:
+            // Open local file in binary read mode
+            file_stream = open_local_file_binary(path)
+            // TDD: Test local file stream opened.
+
+        WHILE True:
+            chunk = file_stream.read(HASH_CHUNK_SIZE)
+            IF NOT chunk:
+                BREAK
+            hasher.update(chunk)
+            // TDD: Test hash updated with chunks.
+        
+        RETURN hasher.hexdigest()
+        // TDD: Test correct hash returned for known content.
+
+    CATCH FileNotFoundError:
+        log_warning("File not found during hashing: " + path)
+        raise // Re-raise to be caught by process_file_entry
+    CATCH PermissionError:
+        log_warning("Permission denied during hashing: " + path)
+        raise // Re-raise
+    CATCH CloudAPIError as e:
+        log_warning("Cloud API error during download for hashing '" + path + "': " + str(e))
+        raise // Re-raise
+    CATCH IOError as e:
+        log_warning("I/O error during hashing '" + path + "': " + str(e))
+        raise // Re-raise
+    FINALLY:
+        IF file_stream IS NOT None:
+            file_stream.close()
+            // TDD: Test file stream is closed on success.
+            // TDD: Test file stream is closed on error.
+
+FUNCTION query_db_for_path(db_conn_read: DBConnection, path: String): Dict OR None
+    // Executes a SELECT query on FileMetadata table for the given path.
+    // Returns dictionary representation of the row or None if not found.
+    TRY:
+        result = db_conn_read.execute("SELECT * FROM FileMetadata WHERE full_path = ?", [path]).fetchone()
+        RETURN result_row_to_dict(result) IF result ELSE None
+    CATCH DuckDBError as e:
+        log_error("DB query failed for path '" + path + "': " + str(e))
+        RETURN None // Or raise? If DB read fails, incremental scan is compromised.
+
+// --- Helper Functions ---
+FUNCTION get_cloud_client(provider_type: String, config_manager: ConfigManager): CloudClient OR None
+    // Uses config_manager to get credentials and initialize the appropriate SDK client.
+    // Handles authentication flow. Returns client instance or None on failure.
+    // Needs implementation per cloud provider (OneDrive, GDrive).
+    // Uses tenacity for retries during authentication/initialization if needed.
+    // TDD: Test getting OneDrive client with mock credentials.
+    // TDD: Test getting GDrive client with mock credentials.
+    // TDD: Test returns None if credentials missing/invalid.
+    pass 
+
+FUNCTION is_cloud_path(path_uri: String): Boolean
+    // Checks if path starts with a known cloud prefix like "onedrive:", "gdrive:"
+    pass
+
+FUNCTION parse_cloud_uri(path_uri: String): Tuple[String, String]
+    // Splits "onedrive:/Documents/file.txt" into ("onedrive", "/Documents/file.txt")
+    pass
+
+FUNCTION construct_cloud_path(provider: String, item_path: String): String
+    // Combines "onedrive" and "/Documents/file.txt" into "onedrive:/Documents/file.txt"
+    pass
+
+// Other helpers: generate_uuid, calculate_optimal_workers, wait_for_all_futures, 
+// result_row_to_dict, get_file_owner, format_permissions, detect_mime_type, 
+// list_append_unique, open_local_file_binary, create_sha256_hasher etc.
+
+// --- Exceptions ---
+CLASS ScanError(Exception): pass
+CLASS CloudAPIError(Exception): pass
+CLASS AuthenticationError(Exception): pass

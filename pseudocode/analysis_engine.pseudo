@@ -1,0 +1,455 @@
+// File: pseudocode/analysis_engine.pseudo
+// Component: Analysis Engine
+
+// --- Constants ---
+CONSTANT ACTION_ITEM_STATUS_PENDING = "PENDING_CONFIRMATION"
+CONSTANT SIMILARITY_POOL_WORKERS = calculate_optimal_workers() // Or a fixed number
+
+// --- Data Structures ---
+// ConfigManager (Provides analysis rules, transfer rules - see config_manager.pseudo)
+// DBConnection (DuckDB connection for R/W)
+// ProcessPoolExecutor (For CPU-bound tasks like similarity hashing/checks)
+// AnalysisRuleConfig (From ConfigManager)
+// TransferRule (From ConfigManager)
+
+// --- Module: AnalysisEngine ---
+
+CLASS AnalysisEngine:
+    PRIVATE config_manager: ConfigManager
+    PRIVATE db_path: String
+    PRIVATE analysis_pool: ProcessPoolExecutor // For similarity/corruption checks
+
+    FUNCTION __init__(config_manager: ConfigManager):
+        self.config_manager = config_manager
+        self.db_path = config_manager.get_db_path()
+        self.analysis_pool = ProcessPoolExecutor(max_workers=SIMILARITY_POOL_WORKERS)
+        // TDD: Test pool initialization.
+
+    FUNCTION run_analysis(scan_session_id: String):
+        // Main entry point to run all enabled analysis steps.
+        db_conn = None
+        log_info("Starting analysis for scan session: " + scan_session_id)
+        
+        TRY
+            db_conn = duckdb_connect(self.db_path, read_only=False)
+            // TDD: Test successful DB connection.
+
+            analysis_rules = self.config_manager.get_analysis_rules()
+            transfer_rules = self.config_manager.get_transfer_rules()
+
+            // --- Run Analysis Steps ---
+            // Order might matter (e.g., find duplicates before suggesting actions)
+            
+            IF analysis_rules.get("duplicates", {}).get("enabled", False):
+                self._find_duplicates(db_conn, scan_session_id)
+                // TDD: Test duplicate finding is called if enabled.
+
+            // Apply rules based on simple attributes (size, age, type, patterns)
+            self._apply_attribute_rules(db_conn, scan_session_id, analysis_rules)
+            // TDD: Test attribute rules application.
+
+            IF analysis_rules.get("similarity", {}).get("enabled", False):
+                 self._find_similar_files(db_conn, scan_session_id, analysis_rules.get("similarity"))
+                 // TDD: Test similarity finding is called if enabled.
+
+            IF analysis_rules.get("corruption", {}).get("enabled", False):
+                 self._check_corruption(db_conn, scan_session_id, analysis_rules.get("corruption"))
+                 // TDD: Test corruption checking is called if enabled.
+
+            IF analysis_rules.get("disorganization", {}).get("enabled", False):
+                 self._calculate_metrics(db_conn, scan_session_id, analysis_rules.get("disorganization"))
+                 // TDD: Test disorganization metrics calculation is called if enabled.
+
+            // Match transfer rules AFTER other analysis flags are set
+            self._match_transfer_rules(db_conn, scan_session_id, transfer_rules)
+            // TDD: Test transfer rule matching.
+
+            // (Optional Post-MVP) Call AI Assistant if enabled
+            // IF analysis_rules.get("ai_suggestions", {}).get("enabled", False):
+            //     self._get_ai_suggestions(db_conn, scan_session_id)
+
+            log_info("Analysis completed for scan session: " + scan_session_id)
+
+        CATCH DuckDBError as e:
+            log_error("Database error during analysis: " + str(e))
+            // TDD: Test handling DB errors during analysis run.
+        CATCH Exception as e:
+            log_error("Unexpected error during analysis: " + str(e))
+            // TDD: Test handling unexpected errors during analysis run.
+        FINALLY:
+            IF db_conn IS NOT None:
+                db_conn.close()
+            // TDD: Test DB connection is closed on success/failure.
+
+    FUNCTION shutdown():
+        log_info("Shutting down analysis process pool...")
+        self.analysis_pool.shutdown(wait=True)
+        log_info("Analysis process pool shut down.")
+        // TDD: Test shutdown waits for pool completion.
+
+    // --- Private Analysis Methods ---
+
+    FUNCTION _find_duplicates(db_conn: DBConnection, scan_session_id: String):
+        log_info("Finding exact duplicates...")
+        TRY
+            // Find hashes with more than one file
+            sql_find_dup_hashes = """
+                SELECT sha256_hash 
+                FROM FileMetadata 
+                WHERE sha256_hash IS NOT NULL AND scan_session_id = ?
+                GROUP BY sha256_hash 
+                HAVING COUNT(*) > 1
+            """
+            duplicate_hashes = db_conn.execute(sql_find_dup_hashes, [scan_session_id]).fetchall()
+            // TDD: Test query finds duplicate hashes correctly.
+            // TDD: Test query handles no duplicates found.
+
+            IF len(duplicate_hashes) > 0:
+                hash_list_placeholder = create_sql_placeholder_list(len(duplicate_hashes))
+                
+                // Flag all files matching these hashes
+                sql_flag_duplicates = f"""
+                    UPDATE FileMetadata 
+                    SET analysis_flags = list_append_unique(analysis_flags, 'duplicate')
+                    WHERE sha256_hash IN ({hash_list_placeholder}) AND scan_session_id = ?
+                """
+                params = [h[0] for h in duplicate_hashes] + [scan_session_id]
+                db_conn.execute(sql_flag_duplicates, params)
+                db_conn.commit()
+                log_info(f"Flagged files for {len(duplicate_hashes)} duplicate hashes.")
+                // TDD: Test update query flags correct files.
+                // TDD: Test list_append_unique adds flag without duplication.
+            ELSE:
+                log_info("No exact duplicates found.")
+
+        CATCH DuckDBError as e:
+            log_error("Error finding duplicates: " + str(e))
+            db_conn.rollback()
+            // TDD: Test handling DB error during duplicate finding.
+
+    FUNCTION _apply_attribute_rules(db_conn: DBConnection, scan_session_id: String, rules: Dict):
+        log_info("Applying attribute-based analysis rules...")
+        // Example for 'large_files' rule
+        IF rules.get("large_files", {}).get("enabled", False):
+            threshold_mb = rules["large_files"].get("threshold_mb", 1024) // Default 1GB
+            threshold_bytes = threshold_mb * 1024 * 1024
+            TRY
+                sql = """
+                    UPDATE FileMetadata 
+                    SET analysis_flags = list_append_unique(analysis_flags, 'large_file')
+                    WHERE size_bytes >= ? AND is_directory = FALSE AND scan_session_id = ?
+                """
+                db_conn.execute(sql, [threshold_bytes, scan_session_id])
+                db_conn.commit()
+                log_info(f"Applied 'large_file' rule (threshold: {threshold_mb} MB).")
+                // TDD: Test large file rule flags correct files.
+                // TDD: Test large file rule ignores directories.
+            CATCH DuckDBError as e:
+                log_error("Error applying 'large_file' rule: " + str(e))
+                db_conn.rollback()
+                // TDD: Test handling DB error during large file rule.
+
+        // Example for 'old_files' rule
+        IF rules.get("old_files", {}).get("enabled", False):
+            days_threshold = rules["old_files"].get("days_threshold", 365)
+            cutoff_date = calculate_cutoff_date(days_threshold) // Current date - threshold
+            date_column = rules["old_files"].get("date_field", "modified_time") // Or 'accessed_time', 'created_time'
+            IF date_column NOT IN ["modified_time", "accessed_time", "created_time"]:
+                 date_column = "modified_time" // Safe default
+            TRY:
+                sql = f"""
+                    UPDATE FileMetadata 
+                    SET analysis_flags = list_append_unique(analysis_flags, 'old_file')
+                    WHERE {date_column} < ? AND is_directory = FALSE AND scan_session_id = ? 
+                """
+                db_conn.execute(sql, [cutoff_date, scan_session_id])
+                db_conn.commit()
+                log_info(f"Applied 'old_file' rule (threshold: {days_threshold} days based on {date_column}).")
+                // TDD: Test old file rule flags correct files based on mtime.
+                // TDD: Test old file rule flags correct files based on atime.
+                // TDD: Test old file rule ignores directories.
+            CATCH DuckDBError as e:
+                log_error("Error applying 'old_file' rule: " + str(e))
+                db_conn.rollback()
+                // TDD: Test handling DB error during old file rule.
+
+        // Add logic for other attribute rules (temp files, zero-byte, empty folders, etc.)
+        // Use SQL UPDATE statements with appropriate WHERE clauses based on config.
+        // TDD: Test temp file pattern matching rule.
+        // TDD: Test zero-byte file rule.
+        // TDD: Test empty folder rule (might need separate query).
+
+    FUNCTION _find_similar_files(db_conn: DBConnection, scan_session_id: String, similarity_config: Dict):
+        log_info("Finding similar files...")
+        // 1. Identify candidate files (e.g., by MIME type for specific hashers)
+        // 2. Dispatch hash calculation tasks to self.analysis_pool
+        // 3. Collect results (file_id, similarity_hash_type, similarity_hash_value)
+        // 4. Update FileMetadata table with similarity hashes
+        // 5. Group files by similarity hash
+        // 6. Apply prioritization within groups (optional)
+        // 7. Update FileMetadata table with similarity_group_id and flags (e.g., 'similar_low_priority')
+
+        // Example: Image similarity using pHash
+        image_mime_types = ["image/jpeg", "image/png", ...] // Get from config?
+        phash_threshold = similarity_config.get("phash_threshold", 8) // Hamming distance threshold
+
+        TRY:
+            // Get image files that haven't been hashed yet
+            sql_get_images = """
+                SELECT id, full_path 
+                FROM FileMetadata 
+                WHERE mime_type IN (?, ?, ...) AND similarity_hash IS NULL AND is_directory = FALSE AND scan_session_id = ?
+            """ 
+            // TDD: Test query selects correct candidate image files.
+            image_files = db_conn.execute(sql_get_images, image_mime_types + [scan_session_id]).fetchall()
+
+            // Dispatch pHash calculation tasks
+            futures = {}
+            FOR file_id, file_path IN image_files:
+                 future = self.analysis_pool.submit(calculate_phash_task, file_path) // Needs error handling inside task
+                 futures[future] = file_id
+                 // TDD: Test submitting pHash task.
+
+            // Collect results and update DB
+            phash_results = [] // List of (file_id, phash_value)
+            FOR future IN wait_for_completed_futures(futures):
+                file_id = futures[future]
+                TRY:
+                    phash_value = future.result()
+                    IF phash_value IS NOT None:
+                        phash_results.append((file_id, "phash:" + phash_value))
+                        // TDD: Test collecting valid pHash result.
+                CATCH Exception as e:
+                    log_warning(f"pHash calculation failed for file_id {file_id}: {e}")
+                    // Flag file with error?
+                    // TDD: Test handling failed pHash task.
+            
+            // Batch update similarity_hash in DB
+            IF len(phash_results) > 0:
+                 update_similarity_hashes(db_conn, phash_results)
+                 // TDD: Test batch update of similarity hashes.
+
+            // Group by pHash and assign group IDs (more complex SQL or Python logic)
+            // Example: Find pairs within threshold using Python (can be slow for many images)
+            // OR use specialized DB extensions if available (e.g., for vector similarity)
+            // OR approximate grouping
+            
+            // Simplified grouping example (find exact pHash matches first)
+            sql_find_phash_groups = """
+                SELECT similarity_hash, list(id) as file_ids
+                FROM FileMetadata
+                WHERE similarity_hash LIKE 'phash:%' AND scan_session_id = ?
+                GROUP BY similarity_hash
+                HAVING COUNT(*) > 1
+            """
+            // TDD: Test finding exact pHash match groups.
+            groups = db_conn.execute(sql_find_phash_groups, [scan_session_id]).fetchall()
+
+            // Assign group IDs and potentially prioritize
+            group_updates = [] // List of (group_id, file_id)
+            priority_updates = [] // List of (flag, file_id)
+            FOR phash, file_ids IN groups:
+                 group_id = "sim_phash_" + generate_short_uuid()
+                 prioritized_ids = apply_similarity_prioritization(db_conn, file_ids, similarity_config) // Returns list of file_ids to keep
+                 // TDD: Test prioritization logic selects correct files based on rules (resolution, size etc.).
+                 FOR file_id IN file_ids:
+                     group_updates.append((group_id, file_id))
+                     IF file_id NOT IN prioritized_ids:
+                          priority_updates.append(('similar_low_priority', file_id))
+                          // TDD: Test non-prioritized files get flagged.
+
+            // Batch update group IDs and priority flags
+            update_similarity_groups(db_conn, group_updates)
+            update_analysis_flags(db_conn, priority_updates)
+            // TDD: Test batch update of group IDs.
+            // TDD: Test batch update of priority flags.
+
+            log_info("Similarity analysis (pHash) completed.")
+
+        CATCH DuckDBError as e:
+            log_error("DB error during similarity analysis: " + str(e))
+            db_conn.rollback()
+            // TDD: Test handling DB errors during similarity analysis.
+        CATCH Exception as e:
+            log_error("Unexpected error during similarity analysis: " + str(e))
+            // TDD: Test handling unexpected errors.
+
+        // Repeat similar logic for other similarity types (fuzzy hash, acoustic fingerprint) based on config and MIME types.
+
+    FUNCTION _check_corruption(db_conn: DBConnection, scan_session_id: String, corruption_config: Dict):
+        log_info("Checking for file corruption...")
+        // Implement multi-level checks based on corruption_config
+        
+        // Level 1: Header/Magic Number/Basic Structure (Fast checks)
+        IF corruption_config.get("level1_enabled", True):
+            // Example: Check zip files
+            sql_get_zips = "SELECT id, full_path FROM FileMetadata WHERE mime_type = 'application/zip' AND scan_session_id = ?"
+            zip_files = db_conn.execute(sql_get_zips, [scan_session_id]).fetchall()
+            // TDD: Test query selects zip files.
+            
+            futures = {}
+            FOR file_id, file_path IN zip_files:
+                 future = self.analysis_pool.submit(check_zip_structure_task, file_path)
+                 futures[future] = file_id
+                 // TDD: Test submitting zip check task.
+
+            error_flags = [] // List of ('corrupt_structure_basic', file_id)
+            FOR future IN wait_for_completed_futures(futures):
+                 file_id = futures[future]
+                 TRY:
+                     is_corrupt = future.result()
+                     IF is_corrupt:
+                          error_flags.append(('corrupt_structure_basic', file_id))
+                          // TDD: Test collecting zip corruption result.
+                 CATCH Exception as e:
+                      log_warning(f"Zip check failed for file_id {file_id}: {e}")
+                      error_flags.append(('corruption_check_error', file_id))
+                      // TDD: Test handling failed zip check task.
+            
+            update_analysis_flags(db_conn, error_flags)
+            // TDD: Test updating basic corruption flags.
+
+            // Add similar logic for python-magic, PyPDF2 basic checks.
+            // TDD: Test header check task.
+            // TDD: Test basic PDF check task.
+
+        // Level 2: Full Structure (Slower, Optional)
+        IF corruption_config.get("level2_enabled", False):
+             // Example: Read all PDF pages
+             // Submit tasks to pool, collect results, update 'corrupt_structure_full' flag.
+             // TDD: Test submitting full PDF check task.
+             // TDD: Test collecting full PDF corruption result.
+             pass
+
+        // Level 3: Media Sampling (Slowest, Optional, External Dependency)
+        IF corruption_config.get("level3_enabled", False):
+             // Example: Use ffmpeg via subprocess
+             // Submit tasks to pool, collect results, update 'corrupt_content_sample' flag.
+             // TDD: Test submitting ffmpeg check task.
+             // TDD: Test collecting ffmpeg corruption result.
+             pass
+             
+        log_info("Corruption checks completed.")
+
+
+    FUNCTION _calculate_metrics(db_conn: DBConnection, scan_session_id: String, metrics_config: Dict):
+        log_info("Calculating disorganization metrics...")
+        // Implement SQL queries or data processing logic to calculate metrics defined in Arch Report 3.
+        // Example: Root File Ratio
+        // total_files = db_conn.execute("SELECT COUNT(*) FROM FileMetadata WHERE is_directory=FALSE AND scan_session_id=?", [scan_session_id]).fetchone()[0]
+        // root_files = db_conn.execute("SELECT COUNT(*) FROM FileMetadata WHERE is_directory=FALSE AND scan_session_id=? AND directory_depth(full_path) = 0", [scan_session_id]).fetchone()[0] // Needs directory_depth function or path parsing
+        // Store results somewhere? Or just report via CLI? Architecture report implies flags.
+        // Update FileMetadata with flags like 'metric_high_root_ratio', 'metric_deep_folders' etc. based on thresholds.
+        // TDD: Test root file ratio calculation.
+        // TDD: Test average folder depth calculation.
+        // TDD: Test flagging based on metric thresholds.
+        pass
+
+    FUNCTION _match_transfer_rules(db_conn: DBConnection, scan_session_id: String, transfer_rules: List[TransferRule]):
+        log_info("Matching files against transfer rules...")
+        IF not transfer_rules:
+            log_info("No transfer rules defined.")
+            RETURN
+
+        FOR rule IN transfer_rules:
+            log_debug(f"Processing transfer rule: {rule.name}")
+            TRY
+                // Build SQL WHERE clause based on rule.source and rule.filters
+                where_clause, params = build_sql_filter(rule, scan_session_id)
+                // TDD: Test building WHERE clause for path source.
+                // TDD: Test building WHERE clause for category source.
+                // TDD: Test building WHERE clause with name pattern filter.
+                // TDD: Test building WHERE clause with size filter.
+                // TDD: Test building WHERE clause with date filter.
+                // TDD: Test building WHERE clause with flag filter (has_flag, not_has_flag).
+                // TDD: Test combining multiple filters correctly (AND logic).
+
+                // Construct INSERT statement for ActionItem
+                sql_insert_action = f"""
+                    INSERT INTO ActionItem (id, file_id, rule_name, action_type, target_path, status, suggestion_time)
+                    SELECT 
+                        generate_action_id(), -- Need a way to generate unique IDs
+                        fm.id, 
+                        ?, -- rule.name
+                        ?, -- rule.action_type
+                        ?, -- rule.destination
+                        ?, -- ACTION_ITEM_STATUS_PENDING
+                        ?  -- current_time
+                    FROM FileMetadata fm
+                    WHERE {where_clause}
+                      -- Optional: Ensure no pending/confirmed action already exists for this file?
+                      AND NOT EXISTS (SELECT 1 FROM ActionItem ai WHERE ai.file_id = fm.id AND ai.status IN ('PENDING_CONFIRMATION', 'CONFIRMED', 'IN_PROGRESS')) 
+                """
+                insert_params = [rule.name, rule.action_type, rule.destination, ACTION_ITEM_STATUS_PENDING, get_current_time()] + params
+                
+                result = db_conn.execute(sql_insert_action, insert_params)
+                db_conn.commit()
+                log_info(f"Rule '{rule.name}': Generated {result.rowcount} action items.") // Check actual API for rowcount
+                // TDD: Test INSERT statement creates correct ActionItem records.
+                // TDD: Test rule matching ignores files with existing pending/confirmed actions.
+
+            CATCH DuckDBError as e:
+                log_error(f"DB error processing rule '{rule.name}': {e}")
+                db_conn.rollback()
+                // TDD: Test handling DB errors during rule matching.
+            CATCH Exception as e:
+                log_error(f"Unexpected error processing rule '{rule.name}': {e}")
+                // TDD: Test handling unexpected errors during rule matching.
+
+// --- Helper Functions ---
+FUNCTION calculate_phash_task(file_path: String): String OR None
+    // Worker task: Calculate perceptual hash for an image file.
+    // Needs error handling for file access, image loading, hashing errors.
+    // Uses imagehash library.
+    // TDD: Test calculates correct pHash for known image.
+    // TDD: Test handles non-image file gracefully (returns None).
+    // TDD: Test handles file read errors (returns None or raises).
+    pass
+
+FUNCTION check_zip_structure_task(file_path: String): Boolean
+    // Worker task: Use zipfile.testzip() to check basic archive integrity.
+    // Returns True if corrupt, False otherwise. Handles errors.
+    // TDD: Test returns False for valid zip.
+    // TDD: Test returns True for corrupt zip.
+    // TDD: Test handles non-zip file.
+    pass
+
+FUNCTION update_similarity_hashes(db_conn: DBConnection, results: List[Tuple[String, String]]):
+    // Batch update FileMetadata.similarity_hash
+    // Use UPDATE ... FROM (VALUES ...) syntax if available, or multiple UPDATEs.
+    // TDD: Test updates correct records with correct hashes.
+    pass
+
+FUNCTION update_similarity_groups(db_conn: DBConnection, updates: List[Tuple[String, String]]):
+    // Batch update FileMetadata.similarity_group_id
+    // TDD: Test updates correct records with correct group IDs.
+    pass
+
+FUNCTION update_analysis_flags(db_conn: DBConnection, flag_updates: List[Tuple[String, String]]):
+    // Batch update FileMetadata.analysis_flags using list_append_unique
+    // TDD: Test appends flags correctly to existing lists.
+    // TDD: Test creates list if flags column was NULL.
+    pass
+
+FUNCTION apply_similarity_prioritization(db_conn: DBConnection, file_ids: List[String], config: Dict): List[String]
+    // Query metadata for file_ids. Apply prioritization rules from config (resolution, size, date, name patterns, corruption flags).
+    // Return list of file_ids considered "best" to keep.
+    // TDD: Test prioritization by resolution (higher is better).
+    // TDD: Test prioritization by size (larger is better).
+    // TDD: Test prioritization by date (newer is better).
+    // TDD: Test prioritization by name pattern.
+    // TDD: Test prioritization avoids files with corruption flags.
+    // TDD: Test combining multiple prioritization rules.
+    pass
+
+FUNCTION build_sql_filter(rule: TransferRule, scan_session_id: String): Tuple[String, List]
+    // Constructs the WHERE clause and parameters based on rule source and filters.
+    // Handles path matching, category matching (using analysis_flags), pattern matching, size/date ranges, flag checks.
+    // Needs careful SQL injection prevention (use parameters ?).
+    pass
+
+// Other helpers: calculate_optimal_workers, wait_for_completed_futures, generate_short_uuid, 
+// calculate_cutoff_date, generate_action_id, create_sql_placeholder_list etc.
+
+// --- Exceptions ---
+CLASS AnalysisError(Exception): pass

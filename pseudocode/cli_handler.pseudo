@@ -1,0 +1,355 @@
+// File: pseudocode/cli_handler.pseudo
+// Component: CLI Handler (using click/typer concepts)
+
+// --- Constants ---
+ACTION_STATUS_PENDING = "PENDING_CONFIRMATION"
+ACTION_STATUS_CONFIRMED = "CONFIRMED"
+ACTION_STATUS_USER_REJECTED = "USER_REJECTED"
+
+// --- Data Structures ---
+// ConfigManager (see config_manager.pseudo)
+// ScannerService (see scanner.pseudo)
+// AnalysisEngine (see analysis_engine.pseudo)
+// ActionExecutor (see action_executor.pseudo)
+// DBConnection (DuckDB connection for reporting/confirmation)
+
+// --- Module: CLIHandler ---
+
+// Main application entry point
+FUNCTION main():
+    // Initialize core components (dependency injection)
+    config_mgr = ConfigManager()
+    // Initialize DB schema if needed (can be done here or on first use)
+    initialize_database(config_mgr.get_db_path()) 
+    
+    // Setup output queue for scanner -> db_writer
+    db_write_queue = create_multiprocessing_queue()
+
+    // Start DB Writer process
+    db_writer_proc = start_process(target=db_writer_process_loop, 
+                                   args=(config_mgr.get_db_path(), db_write_queue))
+    // TDD: Test DB writer process is started.
+
+    // Initialize other services, passing dependencies
+    scanner_svc = ScannerService(config_mgr, db_write_queue)
+    analysis_eng = AnalysisEngine(config_mgr)
+    action_exec = ActionExecutor(config_mgr)
+
+    // Setup CLI command structure (using click/typer decorators conceptually)
+    cli_app = create_cli_app()
+    register_command(cli_app, "scan", handle_scan_command, scanner_svc)
+    register_command(cli_app, "analyze", handle_analyze_command, analysis_eng)
+    register_command(cli_app, "report", handle_report_command, config_mgr) // Needs DB access too
+    register_command(cli_app, "confirm", handle_confirm_command, config_mgr) // Needs DB access too
+    register_command(cli_app, "execute", handle_execute_command, action_exec)
+    register_command(cli_app, "config", handle_config_command, config_mgr)
+    
+    TRY
+        // Run the CLI application
+        cli_app.run() 
+    FINALLY:
+        // Ensure background processes are shut down gracefully
+        log_info("CLI exiting. Shutting down services...")
+        scanner_svc.shutdown()
+        analysis_eng.shutdown() 
+        // Signal DB writer to finish
+        db_write_queue.put(DB_QUEUE_SENTINEL) 
+        wait_for_process_to_finish(db_writer_proc, timeout=10)
+        log_info("Shutdown complete.")
+        // TDD: Test scanner pool shutdown is called.
+        // TDD: Test analysis pool shutdown is called.
+        // TDD: Test DB writer sentinel is sent and process joined.
+
+// --- Command Handlers ---
+
+// Conceptual command: `hygiene scan [--path URI] [--full]`
+FUNCTION handle_scan_command(scanner_service: ScannerService, path: List[String], full: Boolean):
+    // path: Optional list of paths/URIs to scan (overrides config)
+    // full: Flag to force a full rescan (ignore incremental checks)
+    log_cli("Starting scan...")
+    display_progress_bar_start("Scanning") // Use tqdm/rich progress
+
+    TRY
+        // Need a way to report progress back from workers (e.g., another queue, shared state - complex)
+        // Simple approach: just show spinner until submit is done.
+        scanner_service.start_scan(scan_paths=path if path else None, full_rescan=full)
+        // Wait might happen here or in main depending on desired CLI behavior
+        // For now, assume start_scan submits and returns quickly. Progress is tricky.
+        display_progress_bar_finish() 
+        log_cli_success("Scan initiated. Check logs or run reports later.")
+        // TDD: Test calling scanner_service.start_scan with correct paths.
+        // TDD: Test calling scanner_service.start_scan with full_rescan flag.
+        // TDD: Test CLI output on successful initiation.
+    CATCH Exception as e:
+        display_progress_bar_finish()
+        log_cli_error(f"Scan initiation failed: {e}")
+        set_exit_code(1)
+        // TDD: Test handling exceptions during scan initiation.
+
+// Conceptual command: `hygiene analyze [--session ID]`
+FUNCTION handle_analyze_command(analysis_engine: AnalysisEngine, session: String):
+    // session: Optional scan session ID to analyze (defaults to latest?)
+    log_cli("Starting analysis...")
+    display_progress_bar_start("Analyzing") // Or just a spinner
+
+    // Determine target scan_session_id (e.g., query DB for latest if session is None)
+    target_session_id = session IF session ELSE get_latest_scan_session_id(analysis_engine.db_path)
+    // TDD: Test getting latest session ID if none provided.
+    
+    IF target_session_id IS None:
+         log_cli_error("No scan session found to analyze.")
+         set_exit_code(1)
+         RETURN
+
+    TRY
+        analysis_engine.run_analysis(target_session_id)
+        display_progress_bar_finish()
+        log_cli_success(f"Analysis complete for session: {target_session_id}")
+        // TDD: Test calling analysis_engine.run_analysis with correct session ID.
+        // TDD: Test CLI output on successful analysis.
+    CATCH Exception as e:
+        display_progress_bar_finish()
+        log_cli_error(f"Analysis failed: {e}")
+        set_exit_code(1)
+        // TDD: Test handling exceptions during analysis.
+
+// Conceptual command: `hygiene report [--category NAME] [--format FMT] [--output FILE] [--session ID]`
+FUNCTION handle_report_command(config_manager: ConfigManager, category: String, format: String, output: String, session: String):
+    // category: e.g., 'duplicates', 'large_files', 'rule:backup_docs'
+    // format: 'table', 'list', 'csv', 'json'
+    // output: File path to write to (stdout if None)
+    // session: Specific scan session ID (defaults to latest?)
+    log_cli(f"Generating report for category '{category}'...")
+    db_conn = None
+    target_session_id = session IF session ELSE get_latest_scan_session_id(config_manager.get_db_path())
+    // TDD: Test getting latest session ID.
+
+    IF target_session_id IS None:
+         log_cli_error("No scan session found to report on.")
+         set_exit_code(1)
+         RETURN
+
+    TRY
+        db_conn = duckdb_connect(config_manager.get_db_path(), read_only=True)
+        // TDD: Test successful DB connection.
+
+        // Build query based on category
+        sql_query, params = build_report_query(category, target_session_id)
+        // TDD: Test building query for 'duplicates' category.
+        // TDD: Test building query for 'large_files' category.
+        // TDD: Test building query for specific rule name.
+        // TDD: Test building query for specific analysis flag.
+
+        results = db_conn.execute(sql_query, params).fetchall()
+        // TDD: Test executing report query.
+
+        // Format results
+        formatted_output = format_report_results(results, format)
+        // TDD: Test formatting as 'table'.
+        // TDD: Test formatting as 'list'.
+        // TDD: Test formatting as 'csv'.
+        // TDD: Test formatting as 'json'.
+
+        // Write output
+        IF output:
+            write_to_file(output, formatted_output)
+            log_cli_success(f"Report written to: {output}")
+            // TDD: Test writing report to file.
+        ELSE:
+            print_to_console(formatted_output)
+            // TDD: Test writing report to console.
+
+    CATCH DuckDBError as e:
+        log_cli_error(f"Database error generating report: {e}")
+        set_exit_code(1)
+        // TDD: Test handling DB errors during reporting.
+    CATCH Exception as e:
+        log_cli_error(f"Failed to generate report: {e}")
+        set_exit_code(1)
+        // TDD: Test handling unexpected errors during reporting.
+    FINALLY:
+        IF db_conn IS NOT None:
+            db_conn.close()
+
+// Conceptual command: `hygiene confirm [--category NAME | --rule NAME | --file-list FILE] [--yes]`
+FUNCTION handle_confirm_command(config_manager: ConfigManager, category: String, rule: String, file_list: String, yes: Boolean):
+    // category/rule/file_list specify which PENDING actions to confirm. Mutually exclusive?
+    // yes: Skip interactive prompts.
+    log_cli("Confirming actions...")
+    db_conn = None
+    
+    // Validate arguments (only one source allowed)
+    IF count_truthy(category, rule, file_list) != 1:
+        log_cli_error("Specify exactly one of --category, --rule, or --file-list.")
+        set_exit_code(1)
+        RETURN
+    // TDD: Test validation fails if multiple sources provided.
+    // TDD: Test validation fails if no source provided.
+
+    TRY
+        db_conn = duckdb_connect(config_manager.get_db_path(), read_only=False)
+        // TDD: Test successful DB connection.
+
+        // Fetch PENDING actions matching criteria
+        action_ids_to_confirm = fetch_pending_action_ids(db_conn, category, rule, file_list)
+        // TDD: Test fetching pending actions by category.
+        // TDD: Test fetching pending actions by rule name.
+        // TDD: Test fetching pending actions from file list.
+        // TDD: Test returns empty list if no matching pending actions.
+
+        IF len(action_ids_to_confirm) == 0:
+            log_cli_warning("No pending actions found matching the criteria.")
+            RETURN
+
+        confirmed_count = 0
+        rejected_count = 0
+
+        IF yes: // Non-interactive confirmation
+            log_cli_warning(f"Non-interactively confirming {len(action_ids_to_confirm)} actions...")
+            update_action_statuses(db_conn, action_ids_to_confirm, ACTION_STATUS_CONFIRMED)
+            confirmed_count = len(action_ids_to_confirm)
+            // TDD: Test non-interactive confirm updates all statuses to CONFIRMED.
+        ELSE: // Interactive confirmation
+            // Display summary of actions
+            display_confirmation_summary(db_conn, action_ids_to_confirm)
+            
+            // Prompt user for confirmation (overall or per item?) - Assume overall for now.
+            user_confirm = prompt_user_yes_no(f"Confirm execution of {len(action_ids_to_confirm)} actions?")
+            // TDD: Test interactive prompt shown.
+            
+            IF user_confirm:
+                update_action_statuses(db_conn, action_ids_to_confirm, ACTION_STATUS_CONFIRMED)
+                confirmed_count = len(action_ids_to_confirm)
+                // TDD: Test interactive confirm 'yes' updates statuses to CONFIRMED.
+            ELSE:
+                update_action_statuses(db_conn, action_ids_to_confirm, ACTION_STATUS_USER_REJECTED)
+                rejected_count = len(action_ids_to_confirm)
+                log_cli_info("Actions rejected by user.")
+                // TDD: Test interactive confirm 'no' updates statuses to USER_REJECTED.
+
+        log_cli_success(f"Confirmation complete. Confirmed: {confirmed_count}, Rejected: {rejected_count}")
+
+    CATCH DuckDBError as e:
+        log_cli_error(f"Database error during confirmation: {e}")
+        set_exit_code(1)
+        // TDD: Test handling DB errors during confirmation.
+    CATCH Exception as e:
+        log_cli_error(f"Failed to confirm actions: {e}")
+        set_exit_code(1)
+        // TDD: Test handling unexpected errors during confirmation.
+    FINALLY:
+        IF db_conn IS NOT None:
+            db_conn.close()
+
+// Conceptual command: `hygiene execute`
+FUNCTION handle_execute_command(action_executor: ActionExecutor):
+    log_cli("Starting execution of confirmed actions...")
+    display_progress_bar_start("Executing") // Need progress reporting from executor
+
+    TRY
+        // Executor handles fetching confirmed actions and updating status internally
+        action_executor.execute_confirmed_actions() 
+        display_progress_bar_finish()
+        log_cli_success("Execution finished. Check logs for details.")
+        // TDD: Test calling action_executor.execute_confirmed_actions.
+        // TDD: Test CLI output on successful execution finish.
+    CATCH Exception as e:
+        display_progress_bar_finish()
+        log_cli_error(f"Execution failed: {e}")
+        set_exit_code(1)
+        // TDD: Test handling exceptions during execution.
+
+// Conceptual command: `hygiene config get KEY` | `hygiene config set KEY VALUE` | `hygiene config list` | `hygiene config edit` | `hygiene config set-credential KEY`
+FUNCTION handle_config_command(config_manager: ConfigManager, action: String, key: String, value: String):
+    // action: 'get', 'set', 'list', 'edit', 'set-credential'
+    TRY
+        IF action == "get":
+            setting_value = config_manager.get_setting(key)
+            print_to_console(setting_value)
+            // TDD: Test 'get' retrieves and prints setting.
+        ELSE IF action == "set":
+            // Need type conversion for value based on key? Or assume string?
+            typed_value = parse_config_value(key, value) 
+            config_manager.set_setting(key, typed_value)
+            config_manager.save_config() // Save after setting
+            log_cli_success(f"Set '{key}' to '{typed_value}'.")
+            // TDD: Test 'set' updates setting and saves config.
+            // TDD: Test 'set' handles invalid value format.
+        ELSE IF action == "list":
+            print_to_console(format_as_yaml(config_manager.get_all_settings())) // Exclude sensitive?
+            // TDD: Test 'list' prints current config.
+        ELSE IF action == "edit":
+            open_file_in_editor(config_manager.config_file_path)
+            log_cli_info("Opened config file in editor. Reloading configuration...")
+            config_manager.load_config() // Reload after edit
+            // TDD: Test 'edit' opens correct file path.
+            // TDD: Test config reloaded after edit (mock editor).
+        ELSE IF action == "set-credential":
+             // Prompt user securely for the credential value
+             credential_value = prompt_user_for_secret(f"Enter value for credential '{key}':")
+             IF credential_value:
+                 IF config_manager.set_credential(key, credential_value):
+                     log_cli_success(f"Credential '{key}' stored securely.")
+                 ELSE:
+                     log_cli_error(f"Failed to store credential '{key}'.")
+                     set_exit_code(1)
+             ELSE:
+                 log_cli_warning("No credential value provided.")
+             // TDD: Test 'set-credential' prompts user.
+             // TDD: Test 'set-credential' calls config_manager.set_credential.
+             // TDD: Test 'set-credential' handles success/failure from config_manager.
+        ELSE:
+            log_cli_error(f"Unknown config action: {action}")
+            set_exit_code(1)
+            // TDD: Test handling unknown config action.
+
+    CATCH ConfigurationError as e:
+        log_cli_error(f"Configuration error: {e}")
+        set_exit_code(1)
+        // TDD: Test handling ConfigurationError.
+    CATCH Exception as e:
+        log_cli_error(f"Failed config action '{action}': {e}")
+        set_exit_code(1)
+        // TDD: Test handling unexpected errors during config actions.
+
+// --- Helper Functions ---
+FUNCTION log_cli(message: String): pass // Print simple info message
+FUNCTION log_cli_success(message: String): pass // Print success message (e.g., green)
+FUNCTION log_cli_warning(message: String): pass // Print warning message (e.g., yellow)
+FUNCTION log_cli_error(message: String): pass // Print error message (e.g., red)
+FUNCTION set_exit_code(code: Integer): pass // Set process exit code
+
+FUNCTION display_progress_bar_start(description: String): pass // Show progress bar/spinner
+FUNCTION display_progress_bar_update(amount: Integer): pass // Update progress
+FUNCTION display_progress_bar_finish(): pass // Hide progress bar
+
+FUNCTION prompt_user_yes_no(message: String): Boolean // Use inquirerpy or similar
+FUNCTION prompt_user_for_secret(message: String): String // Use getpass or inquirerpy password
+
+FUNCTION build_report_query(category: String, session_id: String): Tuple[String, List]
+    // Builds SQL SELECT for FileMetadata based on category/rule/flag.
+    pass
+
+FUNCTION format_report_results(results: List[Tuple], format: String): String
+    // Formats DB results into table, list, csv, json. Use rich.Table etc.
+    pass
+
+FUNCTION fetch_pending_action_ids(db_conn: DBConnection, category: String, rule: String, file_list: String): List[Integer]
+    // Builds query for ActionItem based on criteria, returns list of IDs.
+    // If file_list, read paths from file and find corresponding file_ids first.
+    pass
+
+FUNCTION update_action_statuses(db_conn: DBConnection, action_ids: List[Integer], new_status: String):
+    // Batch update ActionItem statuses.
+    pass
+
+FUNCTION display_confirmation_summary(db_conn: DBConnection, action_ids: List[Integer]):
+    // Show user what actions they are about to confirm (counts per type, total size etc.)
+    pass
+
+FUNCTION get_latest_scan_session_id(db_path: String): String OR None
+    // Query DB for the most recent scan_session_id.
+    pass
+
+// Other helpers: create_cli_app, register_command, count_truthy, parse_config_value, 
+// open_file_in_editor, create_multiprocessing_queue, start_process, wait_for_process_to_finish etc.

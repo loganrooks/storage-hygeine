@@ -1,0 +1,259 @@
+// File: pseudocode/metadata_store.pseudo
+// Component: Metadata Store (DuckDB Interaction & DB Writer Process)
+
+// --- Constants ---
+CONSTANT DB_WRITE_BATCH_SIZE = 1000
+CONSTANT DB_WRITE_TIMEOUT_SECONDS = 5
+CONSTANT DB_QUEUE_SENTINEL = None // Signal to stop the writer process
+
+// --- Data Structures ---
+// FileMetadataDict (Matches Scanner Output Queue Item)
+//   - id: String (UUID or generated hash?)
+//   - scan_session_id: String
+//   - full_path: String
+//   - is_directory: Boolean
+//   - size_bytes: Integer
+//   - created_time: Timestamp
+//   - modified_time: Timestamp
+//   - accessed_time: Timestamp
+//   - owner: String
+//   - permissions: String
+//   - mime_type: String
+//   - sha256_hash: String
+//   - similarity_hash: String (Optional)
+//   - similarity_group_id: String (Optional)
+//   - analysis_flags: List[String] (Initially empty)
+//   - disorganization_metric_flags: List[String] (Initially empty)
+//   - ai_suggestion: String (Optional)
+//   - last_seen: Timestamp
+//   - first_seen: Timestamp
+
+// --- Module: MetadataStore ---
+
+// This module primarily defines the schema and the DB Writer process.
+// Direct DB connections for reading/analysis are handled by other components.
+
+FUNCTION initialize_database(db_path: String):
+    // Connects to DuckDB and ensures tables exist.
+    db_conn = duckdb_connect(db_path, read_only=False)
+    // TDD: Test connection successful with valid path.
+    // TDD: Test connection fails with invalid path.
+    TRY
+        // Create FileMetadata Table (Idempotent)
+        db_conn.execute("""
+            CREATE TABLE IF NOT EXISTS FileMetadata (
+              id VARCHAR PRIMARY KEY, -- Using VARCHAR for potential UUID/hash ID
+              scan_session_id VARCHAR,
+              full_path VARCHAR UNIQUE NOT NULL,
+              is_directory BOOLEAN NOT NULL,
+              size_bytes BIGINT,
+              created_time TIMESTAMP,
+              modified_time TIMESTAMP,
+              accessed_time TIMESTAMP,
+              owner VARCHAR,
+              permissions VARCHAR,
+              mime_type VARCHAR,
+              sha256_hash VARCHAR,
+              similarity_hash VARCHAR,
+              similarity_group_id VARCHAR,
+              analysis_flags LIST(VARCHAR),
+              disorganization_metric_flags LIST(VARCHAR),
+              ai_suggestion VARCHAR,
+              last_seen TIMESTAMP NOT NULL,
+              first_seen TIMESTAMP NOT NULL
+            );
+        """)
+        // TDD: Test table creation if not exists.
+        // TDD: Test command runs without error if table already exists.
+
+        // Create ActionItem Table (Idempotent)
+        db_conn.execute("""
+            CREATE TABLE IF NOT EXISTS ActionItem (
+              id BIGINT PRIMARY KEY, -- Consider AUTOINCREMENT or sequence
+              file_id VARCHAR NOT NULL REFERENCES FileMetadata(id) ON DELETE CASCADE,
+              rule_name VARCHAR,
+              action_type VARCHAR NOT NULL,
+              target_path VARCHAR,
+              status VARCHAR NOT NULL,
+              result_message VARCHAR,
+              suggestion_time TIMESTAMP NOT NULL,
+              confirmation_time TIMESTAMP,
+              execution_time TIMESTAMP
+            );
+        """)
+        // TDD: Test table creation if not exists.
+        // TDD: Test command runs without error if table already exists.
+
+        // Create Indexes (Idempotent) - Add more as needed based on query patterns
+        db_conn.execute("CREATE INDEX IF NOT EXISTS idx_fm_fullpath ON FileMetadata(full_path);")
+        db_conn.execute("CREATE INDEX IF NOT EXISTS idx_fm_hash ON FileMetadata(sha256_hash);")
+        db_conn.execute("CREATE INDEX IF NOT EXISTS idx_fm_mtime ON FileMetadata(modified_time);")
+        db_conn.execute("CREATE INDEX IF NOT EXISTS idx_fm_size ON FileMetadata(size_bytes);")
+        db_conn.execute("CREATE INDEX IF NOT EXISTS idx_fm_lastseen ON FileMetadata(last_seen);")
+        db_conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_status ON ActionItem(status);")
+        db_conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_fileid ON ActionItem(file_id);")
+        // TDD: Test index creation.
+
+        log_info("Database schema initialized successfully at: " + db_path)
+
+    CATCH DuckDBError as e:
+        log_error("Failed to initialize database schema: " + str(e))
+        raise DatabaseInitializationError("Could not create/verify database tables.")
+    FINALLY:
+        db_conn.close()
+    // TDD: Test handling of DuckDBError during initialization.
+
+// --- Module: DBWriterProcess ---
+
+FUNCTION db_writer_process_loop(db_path: String, input_queue: Queue):
+    // This function runs in a separate process.
+    db_conn = None
+    batch = []
+    last_write_time = get_current_time()
+
+    TRY
+        db_conn = duckdb_connect(db_path, read_only=False)
+        // TDD: Test writer process connects to DB successfully.
+        log_info("DB Writer process started. Connected to: " + db_path)
+
+        WHILE True:
+            item = None
+            TRY:
+                // Wait for an item or timeout
+                item = input_queue.get(timeout=DB_WRITE_TIMEOUT_SECONDS)
+                // TDD: Test receiving item from queue.
+            CATCH QueueEmpty:
+                // Timeout occurred, check if we need to write the current batch
+                pass
+            // TDD: Test handling queue timeout.
+
+            IF item IS DB_QUEUE_SENTINEL:
+                log_info("DB Writer received sentinel. Writing final batch...")
+                write_batch_to_db(db_conn, batch)
+                batch = []
+                BREAK // Exit the loop
+            ELSE IF item IS NOT None:
+                batch.append(item)
+
+            // Write batch if size reached or timeout occurred and batch has items
+            current_time = get_current_time()
+            IF len(batch) >= DB_WRITE_BATCH_SIZE OR \
+               (len(batch) > 0 AND (current_time - last_write_time) > DB_WRITE_TIMEOUT_SECONDS):
+                write_batch_to_db(db_conn, batch)
+                batch = [] // Clear the batch
+                last_write_time = current_time
+                // TDD: Test batch write triggered by size.
+                // TDD: Test batch write triggered by timeout.
+
+    CATCH DuckDBError as e:
+        log_error("DB Writer process encountered a database error: " + str(e))
+        // Handle error - log failed batch items? Terminate?
+    CATCH Exception as e:
+        log_error("DB Writer process encountered an unexpected error: " + str(e))
+    FINALLY:
+        IF db_conn IS NOT None:
+            db_conn.close()
+        log_info("DB Writer process finished.")
+    // TDD: Test graceful shutdown on sentinel.
+    // TDD: Test handling DuckDBError during loop.
+    // TDD: Test handling unexpected Exception during loop.
+
+FUNCTION write_batch_to_db(db_conn: DuckDBConnection, batch: List[FileMetadataDict]):
+    IF len(batch) == 0:
+        RETURN
+
+    log_debug("Writing batch of " + str(len(batch)) + " items to DB.")
+    TRY
+        // Prepare data for insertion (e.g., list of tuples matching table order)
+        // Ensure correct handling of LIST types if using parameter substitution
+        prepared_data = prepare_data_for_upsert(batch)
+
+        // Use INSERT ... ON CONFLICT for efficient upserts
+        // Note: DuckDB syntax might vary slightly, check documentation.
+        // Assumes 'id' or 'full_path' is the conflict target. Using 'full_path'.
+        sql = """
+            INSERT INTO FileMetadata (
+                id, scan_session_id, full_path, is_directory, size_bytes,
+                created_time, modified_time, accessed_time, owner, permissions,
+                mime_type, sha256_hash, similarity_hash, similarity_group_id,
+                analysis_flags, disorganization_metric_flags, ai_suggestion,
+                last_seen, first_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) -- Placeholder count matches columns
+            ON CONFLICT (full_path) DO UPDATE SET
+                scan_session_id = excluded.scan_session_id,
+                is_directory = excluded.is_directory,
+                size_bytes = excluded.size_bytes,
+                created_time = excluded.created_time,
+                modified_time = excluded.modified_time,
+                accessed_time = excluded.accessed_time,
+                owner = excluded.owner,
+                permissions = excluded.permissions,
+                mime_type = excluded.mime_type,
+                sha256_hash = excluded.sha256_hash,
+                -- Only update similarity if new value provided? Or always overwrite? Decide policy.
+                similarity_hash = excluded.similarity_hash,
+                similarity_group_id = excluded.similarity_group_id,
+                -- How to handle list updates? Overwrite or merge? Overwrite is simpler.
+                analysis_flags = excluded.analysis_flags,
+                disorganization_metric_flags = excluded.disorganization_metric_flags,
+                ai_suggestion = excluded.ai_suggestion,
+                last_seen = excluded.last_seen
+                -- Do NOT update first_seen on conflict
+        """
+        // db_conn.executemany(sql, prepared_data) // Use executemany if supported and efficient
+        // OR construct a single large INSERT with multiple VALUES clauses if more performant
+        db_conn.execute(sql, parameters=prepared_data) // Adjust based on actual DuckDB API for batch inserts
+
+        db_conn.commit() // Commit the transaction
+        log_debug("Batch write successful.")
+        // TDD: Test writing a batch inserts new records correctly.
+        // TDD: Test writing a batch updates existing records correctly based on full_path.
+        // TDD: Test 'first_seen' is NOT updated on conflict.
+        // TDD: Test 'last_seen' IS updated on conflict.
+    CATCH DuckDBError as e:
+        log_error("Failed to write batch to database: " + str(e))
+        db_conn.rollback() // Rollback on error
+        // Consider logging failed items from the batch
+        raise // Re-raise the exception to be caught by the main loop
+    // TDD: Test handling DuckDBError during write rolls back transaction.
+
+FUNCTION prepare_data_for_upsert(batch: List[FileMetadataDict]): List[Tuple]
+    // Convert list of dictionaries to list of tuples in the correct column order
+    // Handle potential None values and data type conversions if necessary
+    // Generate unique ID (e.g., UUID) if not provided by scanner
+    prepared = []
+    FOR item IN batch:
+        IF item.get('id') IS None:
+            item['id'] = generate_uuid() // Or use hash-based ID
+
+        // Ensure all fields exist, defaulting to None if missing from dict
+        tuple_data = (
+            item.get('id'),
+            item.get('scan_session_id'),
+            item.get('full_path'),
+            item.get('is_directory'),
+            item.get('size_bytes'),
+            item.get('created_time'),
+            item.get('modified_time'),
+            item.get('accessed_time'),
+            item.get('owner'),
+            item.get('permissions'),
+            item.get('mime_type'),
+            item.get('sha256_hash'),
+            item.get('similarity_hash'),
+            item.get('similarity_group_id'),
+            item.get('analysis_flags', []), // Default to empty list
+            item.get('disorganization_metric_flags', []), // Default to empty list
+            item.get('ai_suggestion'),
+            item.get('last_seen'),
+            item.get('first_seen')
+        )
+        prepared.append(tuple_data)
+    RETURN prepared
+    // TDD: Test conversion handles missing optional fields correctly.
+    // TDD: Test conversion generates ID if missing.
+    // TDD: Test conversion handles list types correctly.
+
+// --- Exceptions ---
+CLASS DatabaseInitializationError(Exception): pass
+CLASS DatabaseWriteError(Exception): pass // May not be needed if DuckDBError is handled

@@ -1,0 +1,382 @@
+// File: pseudocode/action_executor.pseudo
+// Component: Action Executor
+
+// --- Constants ---
+CONSTANT ACTION_STATUS_CONFIRMED = "CONFIRMED"
+CONSTANT ACTION_STATUS_IN_PROGRESS = "IN_PROGRESS"
+CONSTANT ACTION_STATUS_COMPLETED = "COMPLETED"
+CONSTANT ACTION_STATUS_FAILED = "FAILED"
+CONSTANT ACTION_STATUS_SKIPPED = "SKIPPED"
+
+CONSTANT TEMP_DIR_PREFIX = "storage_hygiene_staging_"
+
+// --- Data Structures ---
+// ConfigManager (Provides credentials, transfer rule options - see config_manager.pseudo)
+// DBConnection (DuckDB connection for R/W)
+// ActionItemData (Fetched from DB: id, file_id, source_path, rule_name, action_type, target_path, ...)
+// CloudClient (Abstract representation of OneDrive/GDrive SDK client)
+// TransferRule (From ConfigManager, fetched by rule_name)
+
+// --- Module: ActionExecutor ---
+
+CLASS ActionExecutor:
+    PRIVATE config_manager: ConfigManager
+    PRIVATE db_path: String
+
+    FUNCTION __init__(config_manager: ConfigManager):
+        self.config_manager = config_manager
+        self.db_path = config_manager.get_db_path()
+        // TDD: Test initialization stores config manager and db path.
+
+    FUNCTION execute_confirmed_actions():
+        // Main entry point to process confirmed actions.
+        db_conn = None
+        log_info("Starting execution of confirmed actions...")
+        
+        actions_processed = 0
+        actions_failed = 0
+        
+        TRY
+            db_conn = duckdb_connect(self.db_path, read_only=False)
+            // TDD: Test successful DB connection.
+
+            confirmed_actions = self._fetch_confirmed_actions(db_conn)
+            // TDD: Test fetching confirmed actions returns correct data.
+            // TDD: Test fetching returns empty list if no confirmed actions.
+            
+            log_info(f"Found {len(confirmed_actions)} actions to execute.")
+
+            FOR action_data IN confirmed_actions:
+                success = False
+                error_message = None
+                final_status = ACTION_STATUS_FAILED # Default to failed unless explicitly successful or skipped
+                TRY
+                    // Mark action as IN_PROGRESS
+                    self._update_action_status(db_conn, action_data.id, ACTION_STATUS_IN_PROGRESS)
+                    // TDD: Test status updated to IN_PROGRESS before execution.
+
+                    // Get rule details for options
+                    rule = self.config_manager.get_transfer_rule_by_name(action_data.rule_name)
+                    // TDD: Test fetching rule details by name.
+
+                    // Dispatch to appropriate handler
+                    handler = self._get_action_handler(action_data.action_type)
+                    // TDD: Test getting correct handler for each action type.
+                    
+                    IF handler IS NOT None:
+                        log_info(f"Executing action ID {action_data.id}: {action_data.action_type} on '{action_data.source_path}'")
+                        // Execute with retry logic for relevant operations (cloud)
+                        // Use tenacity decorator or similar on handler methods
+                        handler(self, db_conn, action_data, rule) 
+                        success = True
+                        final_status = ACTION_STATUS_COMPLETED
+                    ELSE:
+                        error_message = f"Unsupported action type: {action_data.action_type}"
+                        log_error(error_message)
+                        // TDD: Test handling unsupported action type.
+                
+                CATCH SkipAction as e:
+                     error_message = f"Action skipped: {e}"
+                     log_warning(f"Action ID {action_data.id} skipped: {error_message}")
+                     final_status = ACTION_STATUS_SKIPPED
+                     // TDD: Test handling SkipAction sets status to SKIPPED.
+                CATCH FileNotFoundError as e:
+                    error_message = f"Source file not found: {e}"
+                    log_error(f"Action ID {action_data.id} failed: {error_message}")
+                    // TDD: Test handling FileNotFoundError during execution.
+                CATCH PermissionError as e:
+                     error_message = f"Permission denied: {e}"
+                     log_error(f"Action ID {action_data.id} failed: {error_message}")
+                     // TDD: Test handling PermissionError during execution.
+                CATCH CloudAPIError as e:
+                     error_message = f"Cloud API error: {e}"
+                     log_error(f"Action ID {action_data.id} failed: {error_message}")
+                     // TDD: Test handling CloudAPIError during execution.
+                CATCH StagingError as e:
+                     error_message = f"Staging area error: {e}"
+                     log_error(f"Action ID {action_data.id} failed: {error_message}")
+                     // TDD: Test handling StagingError during execution.
+                CATCH Exception as e:
+                    error_message = f"Unexpected error: {e}"
+                    log_exception(f"Action ID {action_data.id} failed unexpectedly.") // Log full traceback
+                    // TDD: Test handling unexpected errors during execution.
+                
+                // Update final status
+                self._update_action_status(db_conn, action_data.id, final_status, error_message)
+                actions_processed += 1
+                IF final_status == ACTION_STATUS_FAILED:
+                    actions_failed += 1
+                // TDD: Test status updated to COMPLETED on success.
+                // TDD: Test status updated to FAILED on error, message recorded.
+                // TDD: Test status updated to SKIPPED on skip.
+
+            log_info(f"Action execution finished. Processed: {actions_processed}, Failed: {actions_failed}.")
+
+        CATCH DuckDBError as e:
+            log_error("Database error during action execution: " + str(e))
+            // TDD: Test handling DB errors during execution run.
+        CATCH Exception as e:
+            log_error("Unexpected error during action execution: " + str(e))
+            // TDD: Test handling unexpected errors during execution run.
+        FINALLY:
+            IF db_conn IS NOT None:
+                db_conn.close()
+            // TDD: Test DB connection closed on success/failure.
+
+    // --- Private Helper Methods ---
+
+    FUNCTION _fetch_confirmed_actions(db_conn: DBConnection): List[ActionItemData]
+        // Fetches actions with status 'CONFIRMED' and joins with FileMetadata for source_path
+        sql = """
+            SELECT ai.*, fm.full_path as source_path 
+            FROM ActionItem ai 
+            JOIN FileMetadata fm ON ai.file_id = fm.id 
+            WHERE ai.status = ?
+            ORDER BY ai.suggestion_time -- Process in order suggested? Or by rule?
+        """
+        results = db_conn.execute(sql, [ACTION_STATUS_CONFIRMED]).fetchall()
+        // Convert results to list of ActionItemData objects/dicts
+        RETURN parse_action_item_results(results) 
+
+    FUNCTION _update_action_status(db_conn: DBConnection, action_id: Integer, status: String, message: String = None):
+        // Updates the status and optionally the result_message and execution_time
+        current_time = get_current_time()
+        sql = """
+            UPDATE ActionItem 
+            SET status = ?, result_message = ?, execution_time = ?
+            WHERE id = ?
+        """
+        db_conn.execute(sql, [status, message, current_time, action_id])
+        db_conn.commit()
+        // TDD: Test updating status works correctly.
+        // TDD: Test updating status and message works correctly.
+
+    FUNCTION _get_action_handler(action_type: String): Function OR None
+        handlers = {
+            "DELETE": self._handle_delete,
+            "MOVE_TRASH": self._handle_move_trash,
+            "COPY_LOCAL": self._handle_copy_local,
+            "MOVE_LOCAL": self._handle_move_local,
+            "COPY_CLOUD": self._handle_copy_cloud,
+            "MOVE_CLOUD": self._handle_move_cloud,
+            // Add more handlers as needed
+        }
+        RETURN handlers.get(action_type)
+
+    // --- Action Handlers (Apply retry logic via decorators where appropriate, e.g., cloud ops) ---
+
+    // @retry(wait=exponential_backoff(...), stop=stop_after_attempt(3), retry=retry_if_exception_type(IOError)) // Example retry
+    FUNCTION _handle_delete(self, db_conn: DBConnection, action: ActionItemData, rule: TransferRule):
+        log_debug(f"Deleting file: {action.source_path}")
+        delete_local_file_or_directory(action.source_path) // Use os.remove or os.rmdir/shutil.rmtree
+        // TDD: Test deleting a file works.
+        // TDD: Test deleting a directory works.
+        // TDD: Test raises FileNotFoundError if source missing.
+        // TDD: Test raises PermissionError if permissions insufficient.
+
+    // @retry(...) // Less likely needed for trash, but maybe for specific OS issues
+    FUNCTION _handle_move_trash(self, db_conn: DBConnection, action: ActionItemData, rule: TransferRule):
+        log_debug(f"Moving to trash: {action.source_path}")
+        send_to_trash(action.source_path) // Use send2trash library
+        // TDD: Test moving file to trash works.
+        // TDD: Test moving directory to trash works.
+        // TDD: Test raises TrashPermissionError if applicable.
+
+    // @retry(...) // For potential network drive issues?
+    FUNCTION _handle_copy_local(self, db_conn: DBConnection, action: ActionItemData, rule: TransferRule):
+        log_debug(f"Copying local: {action.source_path} -> {action.target_path}")
+        target_path = self._prepare_target_path(action.source_path, action.target_path, rule)
+        copy_local_file_with_metadata(action.source_path, target_path) // Use shutil.copy2
+        // TDD: Test copying file works, preserves metadata.
+        // TDD: Test copying directory works recursively.
+        // TDD: Test conflict resolution (skip/rename/overwrite).
+        // TDD: Test raises error if target dir doesn't exist and cannot be created.
+
+    // @retry(...) // For potential network drive issues?
+    FUNCTION _handle_move_local(self, db_conn: DBConnection, action: ActionItemData, rule: TransferRule):
+        log_debug(f"Moving local: {action.source_path} -> {action.target_path}")
+        target_path = self._prepare_target_path(action.source_path, action.target_path, rule)
+        move_local_file_or_directory(action.source_path, target_path) // Use shutil.move
+        // TDD: Test moving file works.
+        // TDD: Test moving directory works.
+        // TDD: Test conflict resolution (shutil.move might handle some cases).
+
+    @retry(wait=exponential_backoff(...), stop=stop_after_attempt(3), retry=retry_if_exception_type(CloudAPIError))
+    FUNCTION _handle_copy_cloud(self, db_conn: DBConnection, action: ActionItemData, rule: TransferRule):
+        log_debug(f"Copying to/from/between cloud: {action.source_path} -> {action.target_path}")
+        source_is_cloud, source_provider, source_item_path = parse_uri(action.source_path)
+        target_is_cloud, target_provider, target_item_path = parse_uri(action.target_path)
+
+        source_client = get_cloud_client(source_provider, self.config_manager) IF source_is_cloud ELSE None
+        target_client = get_cloud_client(target_provider, self.config_manager) IF target_is_cloud ELSE None
+        // TDD: Test getting source/target clients correctly.
+
+        temp_dir = None
+        local_stage_path = None
+        
+        TRY
+            // Determine transfer path and if staging is needed
+            IF source_is_cloud AND target_is_cloud AND source_provider != target_provider: // Cloud-to-Cloud
+                temp_dir = create_temporary_directory(prefix=TEMP_DIR_PREFIX)
+                local_stage_path = temp_dir.path / get_filename_from_path(source_item_path)
+                log_debug(f"Staging cloud-to-cloud via {local_stage_path}")
+                // TDD: Test cloud-to-cloud uses staging.
+                
+                // 1. Download from source cloud to stage
+                check_disk_space(temp_dir.path, source_client.get_item_size(source_item_path)) // Estimate needed space
+                source_client.download_file(source_item_path, local_stage_path)
+                // TDD: Test download to stage successful.
+                // TDD: Test download handles CloudAPIError.
+
+                // 2. Upload from stage to target cloud
+                target_final_path = self._prepare_cloud_target_path(target_client, target_item_path, local_stage_path, rule)
+                target_client.upload_file(local_stage_path, target_final_path)
+                // TDD: Test upload from stage successful.
+                // TDD: Test upload handles CloudAPIError.
+                // TDD: Test cloud conflict resolution (skip/rename/overwrite via API if possible, or pre-check).
+
+            ELSE IF source_is_cloud AND NOT target_is_cloud: // Cloud-to-Local
+                local_stage_path = self._prepare_target_path(action.source_path, action.target_path, rule)
+                log_debug(f"Downloading cloud-to-local: {action.source_path} -> {local_stage_path}")
+                // TDD: Test cloud-to-local prepares target path.
+                check_disk_space(Path(local_stage_path).parent, source_client.get_item_size(source_item_path))
+                source_client.download_file(source_item_path, local_stage_path)
+                // TDD: Test download to local successful.
+
+            ELSE IF NOT source_is_cloud AND target_is_cloud: // Local-to-Cloud
+                local_source_path = action.source_path
+                log_debug(f"Uploading local-to-cloud: {local_source_path} -> {action.target_path}")
+                // TDD: Test local-to-cloud prepares target path.
+                target_final_path = self._prepare_cloud_target_path(target_client, target_item_path, local_source_path, rule)
+                target_client.upload_file(local_source_path, target_final_path)
+                // TDD: Test upload from local successful.
+            
+            ELSE: // Should have been handled by _handle_copy_local
+                 raise ExecutionError("Invalid state: Cloud copy handler called for local-to-local.")
+
+        FINALLY:
+            // Clean up temporary staging directory
+            IF temp_dir IS NOT None:
+                cleanup_temporary_directory(temp_dir)
+                // TDD: Test staging directory is cleaned up.
+
+    @retry(wait=exponential_backoff(...), stop=stop_after_attempt(3), retry=retry_if_exception_type(CloudAPIError))
+    FUNCTION _handle_move_cloud(self, db_conn: DBConnection, action: ActionItemData, rule: TransferRule):
+        log_debug(f"Moving to/from/between cloud: {action.source_path} -> {action.target_path}")
+        // Similar logic to _handle_copy_cloud, but includes deleting the source *after* successful transfer.
+        
+        source_is_cloud, source_provider, source_item_path = parse_uri(action.source_path)
+        target_is_cloud, target_provider, target_item_path = parse_uri(action.target_path)
+        source_client = get_cloud_client(source_provider, self.config_manager) IF source_is_cloud ELSE None
+        
+        // Check if cloud provider supports native server-side move/rename first
+        IF source_is_cloud AND target_is_cloud AND source_provider == target_provider:
+            IF source_client.supports_move():
+                 log_debug(f"Attempting native cloud move: {action.source_path} -> {action.target_path}")
+                 target_final_path = self._prepare_cloud_target_path(source_client, target_item_path, source_item_path, rule) // Check target exists for conflict
+                 source_client.move_item(source_item_path, target_final_path)
+                 log_info("Native cloud move successful.")
+                 RETURN // Skip copy/delete logic
+                 // TDD: Test native cloud move successful.
+                 // TDD: Test native cloud move conflict handling.
+            ELSE:
+                 log_debug("Native cloud move not supported, proceeding with copy+delete.")
+
+        // Perform copy operation (leverages _handle_copy_cloud logic or similar)
+        // Need to ensure copy doesn't raise SkipAction if we intend to delete source
+        copy_rule_options = rule.options.copy()
+        copy_rule_options['conflict_resolution'] = 'overwrite' # Or handle differently? Ensure target is clear.
+        copy_rule = TransferRule(name=rule.name, ..., options=copy_rule_options) # Create modified rule for copy part
+        
+        self._handle_copy_cloud(db_conn, action, copy_rule) # Use modified rule for copy
+        // TDD: Test copy part of move successful.
+
+        // If copy was successful, delete the source
+        log_debug(f"Copy successful, deleting source: {action.source_path}")
+        IF source_is_cloud:
+            // Add retry logic to delete as well
+            source_client.delete_item(source_item_path)
+            // TDD: Test cloud source deleted after successful copy.
+            // TDD: Test handling errors during cloud source deletion.
+        ELSE:
+            // Add retry logic? Less critical for local delete maybe.
+            delete_local_file_or_directory(action.source_path)
+            // TDD: Test local source deleted after successful copy.
+            // TDD: Test handling errors during local source deletion.
+
+    FUNCTION _prepare_target_path(self, source_path: String, target_dir: String, rule: TransferRule): String
+        // Creates target directory if needed. Handles conflicts based on rule options. Returns final target path.
+        filename = get_filename_from_path(source_path)
+        target_path = Path(target_dir) / filename
+        
+        ensure_directory_exists(Path(target_dir))
+        // TDD: Test target directory created if not exists.
+
+        IF target_path.exists():
+            conflict_option = rule.options.get("conflict_resolution", "skip") // Default to skip
+            // TDD: Test default conflict resolution is skip.
+            IF conflict_option == "skip":
+                log_warning(f"Target exists, skipping: {target_path}")
+                raise SkipAction(f"Target file exists: {target_path}") 
+                // TDD: Test skip option raises SkipAction.
+            ELSE IF conflict_option == "rename":
+                target_path = generate_unique_filename(target_path)
+                log_info(f"Target exists, renaming to: {target_path}")
+                // TDD: Test rename option generates unique name.
+            ELSE IF conflict_option == "overwrite":
+                log_warning(f"Target exists, overwriting: {target_path}")
+                // TDD: Test overwrite option proceeds.
+            ELSE: // Unknown option, treat as skip
+                 log_warning(f"Unknown conflict option '{conflict_option}', skipping: {target_path}")
+                 raise SkipAction(f"Target file exists: {target_path}")
+
+        RETURN str(target_path)
+
+    FUNCTION _prepare_cloud_target_path(self, cloud_client: CloudClient, target_item_path: String, source_local_path: String, rule: TransferRule): String
+        // Checks for conflicts in cloud storage based on rule options. Returns final target path.
+        // May involve listing target folder, similar logic to _prepare_target_path.
+        // Cloud APIs might offer options for rename/overwrite on upload.
+        // TDD: Test cloud target path preparation.
+        // TDD: Test cloud conflict check (skip/rename/overwrite).
+        pass
+
+// --- Helper Functions ---
+FUNCTION parse_action_item_results(rows: List[Tuple]): List[ActionItemData]
+    // Convert DB rows to ActionItemData objects/dicts
+    pass
+
+FUNCTION get_cloud_client(provider_type: String, config_manager: ConfigManager): CloudClient OR None
+    // Copied from scanner.pseudo - should be shared utility
+    pass
+
+FUNCTION parse_uri(uri: String): Tuple[Boolean, String, String]
+    // Parses "onedrive:/path/file" into (True, "onedrive", "/path/file")
+    // Parses "/local/path/file" into (False, None, "/local/path/file")
+    pass
+
+FUNCTION ensure_directory_exists(dir_path: Path):
+    // Copied from config_manager.pseudo - should be shared utility
+    pass
+
+FUNCTION check_disk_space(directory: Path, required_bytes: Integer):
+    // Checks if directory's filesystem has enough free space. Raises StagingError if not.
+    // TDD: Test raises error if insufficient space.
+    // TDD: Test passes if sufficient space.
+    pass
+    
+FUNCTION create_temporary_directory(prefix: String): TempDirectoryObject
+    // Uses tempfile.TemporaryDirectory
+    pass
+
+FUNCTION cleanup_temporary_directory(temp_dir: TempDirectoryObject):
+    // Calls temp_dir.cleanup()
+    pass
+
+// Other helpers: delete_local_file_or_directory, send_to_trash, copy_local_file_with_metadata, 
+// move_local_file_or_directory, get_filename_from_path, generate_unique_filename etc.
+
+// --- Exceptions ---
+CLASS ExecutionError(Exception): pass
+CLASS CloudAPIError(Exception): pass // Copied from scanner.pseudo
+CLASS StagingError(Exception): pass
+CLASS SkipAction(Exception): pass // Used for graceful skipping due to conflicts etc.

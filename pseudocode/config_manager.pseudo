@@ -1,0 +1,216 @@
+// File: pseudocode/config_manager.pseudo
+// Component: Configuration Manager
+
+// --- Constants ---
+CONSTANT DEFAULT_CONFIG_DIR = get_user_config_dir("storage-hygeine")
+CONSTANT DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.yaml"
+CONSTANT DEFAULT_DB_DIR = get_user_data_dir("storage-hygeine")
+CONSTANT DEFAULT_DB_FILE = DEFAULT_DB_DIR / "metadata.duckdb"
+CONSTANT KEYRING_SERVICE_NAME = "storage-hygeine"
+
+// --- Data Structures ---
+// ConfigSchema (Validated structure, e.g., using Pydantic)
+//   - scan_paths: List[String]
+//   - analysis_rules: Dict[String, RuleConfig]
+//   - transfer_rules: List[TransferRule]
+//   - log_level: String
+//   - db_path: String
+//   - ... other settings
+
+// RuleConfig (Example for 'large_files')
+//   - enabled: Boolean
+//   - threshold_mb: Integer
+
+// TransferRule (Based on ADR-007)
+//   - name: String
+//   - action_type: String ('COPY', 'MOVE')
+//   - source: String (path, cloud path, or 'category:...')
+//   - destination: String (path, cloud path, 'TRASH', 'PERMANENT_DELETE')
+//   - filters: Optional[Dict] (patterns, size, date, flags)
+//   - options: Optional[Dict] (conflict_resolution, delete_source_after_transfer)
+
+// --- Module: ConfigManager ---
+
+CLASS ConfigManager:
+    PRIVATE config_data: ConfigSchema
+    PRIVATE config_file_path: Path
+
+    // --- Initialization ---
+    FUNCTION __init__(config_path=DEFAULT_CONFIG_FILE):
+        self.config_file_path = Path(config_path)
+        self.config_data = self.load_config()
+        // TDD: Test initialization with default path.
+        // TDD: Test initialization with custom path.
+        // TDD: Test initialization creates default config if file not found.
+
+    // --- Core Methods ---
+    FUNCTION load_config(): ConfigSchema
+        TRY
+            IF NOT self.config_file_path.exists():
+                create_default_config(self.config_file_path)
+                // TDD: Test that default config is created correctly.
+            
+            yaml_content = read_file_content(self.config_file_path)
+            raw_config = parse_yaml(yaml_content)
+            
+            // Validate raw_config against ConfigSchema (e.g., using Pydantic)
+            validated_config = validate_schema(raw_config, ConfigSchema)
+            // TDD: Test validation success with valid config.
+            // TDD: Test validation failure with invalid config (missing keys, wrong types).
+            
+            // Ensure essential defaults if missing after validation (e.g., db_path)
+            IF validated_config.db_path IS NULL OR EMPTY:
+                 validated_config.db_path = DEFAULT_DB_FILE
+            ensure_directory_exists(Path(validated_config.db_path).parent)
+
+            RETURN validated_config
+        CATCH FileNotFoundError:
+            log_error("Config file not found at: " + self.config_file_path)
+            // Potentially re-create default or raise critical error
+            raise ConfigurationError("Config file missing and could not be created.")
+        CATCH YamlParseError:
+            log_error("Error parsing YAML config file: " + self.config_file_path)
+            raise ConfigurationError("Invalid YAML format in config file.")
+        CATCH ValidationError as e:
+            log_error("Config validation failed: " + str(e))
+            raise ConfigurationError("Invalid configuration structure or values.")
+        // TDD: Test handling of FileNotFoundError during load.
+        // TDD: Test handling of YamlParseError during load.
+        // TDD: Test handling of ValidationError during load.
+
+    FUNCTION save_config():
+        // Only save non-sensitive parts back to YAML
+        config_to_save = filter_sensitive_data(self.config_data) 
+        yaml_string = format_as_yaml(config_to_save)
+        TRY
+            ensure_directory_exists(self.config_file_path.parent)
+            write_to_file(self.config_file_path, yaml_string)
+            // TDD: Test saving valid config writes correct YAML.
+        CATCH IOError as e:
+            log_error("Failed to save config file: " + str(e))
+            raise ConfigurationError("Could not write config file.")
+        // TDD: Test handling of IOError during save.
+
+    FUNCTION get_setting(key_path: String, default=None): Any
+        // Access nested settings using dot notation, e.g., "analysis_rules.large_files.threshold_mb"
+        value = access_nested_dict(self.config_data, key_path)
+        RETURN value IF value IS NOT None ELSE default
+        // TDD: Test getting existing top-level setting.
+        // TDD: Test getting existing nested setting.
+        // TDD: Test getting non-existent setting returns default.
+
+    FUNCTION set_setting(key_path: String, value: Any):
+        // Set nested settings using dot notation
+        // Validate value type if possible before setting
+        set_nested_dict(self.config_data, key_path, value)
+        // TDD: Test setting top-level setting updates internal data.
+        // TDD: Test setting nested setting updates internal data.
+        // TDD: Test setting invalid value type raises error (if validation added).
+        // Consider triggering save_config() or requiring explicit save call
+
+    FUNCTION get_scan_paths(): List[String]
+        RETURN self.config_data.scan_paths OR []
+        // TDD: Test returns correct paths from config.
+        // TDD: Test returns empty list if not defined.
+
+    FUNCTION get_analysis_rules(): Dict[String, RuleConfig]
+        RETURN self.config_data.analysis_rules OR {}
+        // TDD: Test returns correct rules dict.
+
+    FUNCTION get_transfer_rules(): List[TransferRule]
+        RETURN self.config_data.transfer_rules OR []
+        // TDD: Test returns correct transfer rules list.
+
+    FUNCTION get_db_path(): String
+        RETURN self.config_data.db_path // Default set during load
+        // TDD: Test returns correct DB path.
+
+    // --- Credential Management (using OS Keychain via 'keyring') ---
+    FUNCTION get_credential(service_key: String): String OR None
+        // service_key examples: "onedrive_client_secret", "gdrive_api_key", "vertex_ai_key"
+        TRY
+            // Use KEYRING_SERVICE_NAME to scope credentials
+            password = keyring_get_password(KEYRING_SERVICE_NAME, service_key)
+            RETURN password
+            // TDD: Test getting existing credential returns correct value (requires mocking keyring).
+        CATCH KeyringError as e:
+            log_warning("Could not retrieve credential '" + service_key + "' from keyring: " + str(e))
+            RETURN None
+        // TDD: Test getting non-existent credential returns None (requires mocking keyring).
+        // TDD: Test handling keyring backend errors returns None (requires mocking keyring).
+
+    FUNCTION set_credential(service_key: String, credential_value: String): Boolean
+        TRY
+            keyring_set_password(KEYRING_SERVICE_NAME, service_key, credential_value)
+            log_info("Credential '" + service_key + "' stored successfully.")
+            RETURN True
+            // TDD: Test setting credential stores value (requires mocking keyring).
+        CATCH KeyringError as e:
+            log_error("Failed to store credential '" + service_key + "' in keyring: " + str(e))
+            RETURN False
+        // TDD: Test handling keyring backend errors returns False (requires mocking keyring).
+
+    FUNCTION delete_credential(service_key: String): Boolean
+        TRY
+            keyring_delete_password(KEYRING_SERVICE_NAME, service_key)
+            log_info("Credential '" + service_key + "' deleted successfully.")
+            RETURN True
+            // TDD: Test deleting existing credential works (requires mocking keyring).
+        CATCH PasswordDeleteError:
+             log_info("Credential '" + service_key + "' not found to delete.")
+             RETURN True // Or False depending on desired semantics
+        CATCH KeyringError as e:
+            log_error("Failed to delete credential '" + service_key + "' from keyring: " + str(e))
+            RETURN False
+        // TDD: Test deleting non-existent credential (requires mocking keyring).
+        // TDD: Test handling keyring backend errors returns False (requires mocking keyring).
+
+    FUNCTION ensure_credential(service_key: String, prompt_message: String): String OR None
+        // Tries to get credential, prompts user via CLI if missing, sets it, then returns it.
+        credential = self.get_credential(service_key)
+        IF credential IS None:
+            log_info("Credential '" + service_key + "' not found in keyring.")
+            // This function needs access to a CLI interaction module/function
+            user_input = prompt_user_for_secret(prompt_message) 
+            IF user_input IS NOT None AND user_input IS NOT EMPTY:
+                IF self.set_credential(service_key, user_input):
+                    RETURN user_input
+                ELSE:
+                    log_error("Failed to store the provided credential.")
+                    RETURN None
+            ELSE:
+                log_warning("No credential provided by user.")
+                RETURN None
+        ELSE:
+            RETURN credential
+        // TDD: Test returns existing credential without prompting.
+        // TDD: Test prompts user if credential missing (requires mocking CLI prompt & keyring).
+        // TDD: Test successfully sets and returns credential after prompt.
+        // TDD: Test returns None if user provides no input.
+        // TDD: Test returns None if setting credential fails after prompt.
+
+// --- Helper Functions ---
+FUNCTION create_default_config(file_path: Path):
+    default_config = {
+        "scan_paths": [],
+        "analysis_rules": {
+            "duplicates": {"enabled": True},
+            "large_files": {"enabled": True, "threshold_mb": 1024},
+            "old_files": {"enabled": True, "days_threshold": 365},
+            // Add other default rules...
+        },
+        "transfer_rules": [],
+        "log_level": "INFO",
+        "db_path": str(DEFAULT_DB_FILE) 
+    }
+    yaml_string = format_as_yaml(default_config)
+    ensure_directory_exists(file_path.parent)
+    write_to_file(file_path, yaml_string)
+    log_info("Created default config file at: " + str(file_path))
+
+FUNCTION ensure_directory_exists(dir_path: Path):
+    IF NOT dir_path.exists():
+        create_directories(dir_path)
+
+// --- Exceptions ---
+CLASS ConfigurationError(Exception): pass
