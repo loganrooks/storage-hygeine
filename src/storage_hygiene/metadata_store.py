@@ -1,6 +1,7 @@
 import duckdb
 from pathlib import Path
 import logging
+from collections import defaultdict # Import defaultdict
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -127,6 +128,43 @@ class MetadataStore:
             # self.conn.rollback()
             raise # Re-raise the exception
 
+    def update_file_path(self, old_path: str, new_path: str):
+        """
+        Updates the path and filename of a file record in the database.
+
+        Args:
+            old_path: The original path of the file record to update.
+            new_path: The new path to set for the file record.
+        """
+        if not self.conn:
+            logger.error("Cannot update path, no database connection.")
+            return
+
+        new_path_obj = Path(new_path)
+        new_filename = new_path_obj.name
+
+        sql = """
+            UPDATE files
+            SET path = ?, filename = ?
+            WHERE path = ?;
+        """
+        params = (new_path, new_filename, old_path)
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(sql, params)
+            updated_rows = cursor.rowcount # DuckDB returns rowcount after execute
+            self.conn.commit()
+            if updated_rows > 0:
+                logger.info(f"Updated path for {old_path} to {new_path}")
+            else:
+                logger.warning(f"No record found with path {old_path} to update.")
+            cursor.close()
+        except Exception as e:
+            logger.error(f"Failed to update path for {old_path} to {new_path}: {e}")
+            # Consider rolling back if part of a larger transaction context
+            # self.conn.rollback()
+            raise # Re-raise the exception
     def query_files(self, criteria: dict) -> list[dict]:
         """
         Queries the 'files' table based on the provided criteria.
@@ -193,3 +231,50 @@ class MetadataStore:
             return [] # Returning empty list for now
 
         return results
+
+    def get_duplicates(self) -> dict[str, list[dict]]:
+        """
+        Finds duplicate files based on hash values stored in the metadata.
+
+        Returns:
+            A dictionary where keys are hash values of duplicate files and
+            values are lists of file record dictionaries sharing that hash.
+            Only includes hashes associated with more than one file.
+        """
+        if not self.conn:
+            logger.error("Cannot get duplicates, no database connection.")
+            return {}
+
+        sql = """
+            WITH DuplicateHashes AS (
+                SELECT hash
+                FROM files
+                WHERE hash IS NOT NULL AND hash != '' -- Exclude empty/null hashes
+                GROUP BY hash
+                HAVING COUNT(*) > 1
+            )
+            SELECT f.path, f.filename, f.size_bytes, f.last_modified, f.hash, f.last_scanned
+            FROM files f
+            JOIN DuplicateHashes dh ON f.hash = dh.hash
+            ORDER BY f.hash, f.last_modified, f.path; -- Order for consistent grouping
+        """
+        duplicates_by_hash = defaultdict(list)
+        try:
+            cursor = self.conn.cursor()
+            logger.debug(f"Executing query to find duplicates: {sql}")
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+
+            for row in rows:
+                record = dict(zip(columns, row))
+                duplicates_by_hash[record['hash']].append(record)
+
+            cursor.close()
+            logger.debug(f"Found {len(duplicates_by_hash)} hashes with duplicates.")
+
+        except Exception as e:
+            logger.error(f"Failed to execute duplicate query: {e}")
+            return {} # Return empty dict on error
+
+        return dict(duplicates_by_hash)
