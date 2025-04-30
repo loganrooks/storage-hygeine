@@ -3,6 +3,36 @@
 
 ## Test Execution Results
 <!-- Append test run summaries using the format below -->
+### Test Execution: Unit - [2025-04-29 22:44:37]
+- **Trigger**: Manual TDD Cycle 6 (Scanner - Error Handling)
+- **Outcome**: PASS / **Summary**: [4 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_scan_directory_handles_permission_error` passed after fixing assertion (using ANY for timestamp). Existing error handling was sufficient.
+### Test Execution: Unit - [2025-04-29 22:42:40]
+- **Trigger**: Manual TDD Cycle 5 Refactor (Scanner - Incremental Scan)
+- **Outcome**: PASS / **Summary**: [3 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Tests passed after refactoring `scan_directory` to use `_process_file` helper.
+### Test Execution: Unit - [2025-04-29 22:39:53]
+- **Trigger**: Manual TDD Cycle 4 (Scanner - Calc Hash)
+- **Outcome**: PASS / **Summary**: [2 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_scan_directory_finds_files_and_calls_upsert` passed after adding hash calculation via `_calculate_hash` helper.
+### Test Execution: Unit - [2025-04-29 22:38:06]
+- **Trigger**: Manual TDD Cycle 3 (Scanner - Collect Metadata)
+- **Outcome**: PASS / **Summary**: [2 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_scan_directory_finds_files_and_calls_upsert` passed after adding metadata collection (size, mtime) to `scan_directory`.
+### Test Execution: Unit - [2025-04-29 22:35:24]
+- **Trigger**: Manual TDD Cycle 2 (Scanner - Traverse/MS Call)
+- **Outcome**: PASS / **Summary**: [2 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_scan_directory_finds_files_and_calls_upsert` passed after minimal `scan_directory` implementation.
+### Test Execution: Unit - [2025-04-29 22:34:05]
+- **Trigger**: Manual TDD Cycle 1 (Scanner - Init)
+- **Outcome**: PASS / **Summary**: [1 test passed, 0 failed] (Note: Only ran scanner tests)
+- **Failed Tests**: None
+- **Notes**: Test `test_scanner_initialization` passed after minimal `Scanner` class implementation.
 ### Test Execution: Unit - [2025-04-29 22:21:52]
 - **Trigger**: Manual TDD Cycle 6 (MetadataStore - Query Multi-Criteria)
 - **Outcome**: PASS / **Summary**: [12 tests passed, 0 failed]
@@ -160,6 +190,42 @@
 ### Test Execution: Unit - [2025-04-29 21:17:58]
 - **Trigger**: Manual TDD Cycle 1
 - **Outcome**: PASS / **Summary**: [1 tests passed, 0 failed]
+### TDD Cycle: Scanner - Init - [2025-04-29 22:34:05]
+### TDD Cycle: Scanner - Traverse/MS Call - [2025-04-29 22:35:24]
+### TDD Cycle: Scanner - Collect Metadata - [2025-04-29 22:38:06]
+### TDD Cycle: Scanner - Calc Hash - [2025-04-29 22:39:53]
+### TDD Cycle: Scanner - Incremental Scan - [2025-04-29 22:42:40]
+### TDD Cycle: Scanner - Error Handling - [2025-04-29 22:44:37]
+- **Red**: Added test `test_scan_directory_handles_permission_error` using mock side effect to simulate `OSError`. Initial run failed on timestamp assertion in `assert_called_once_with`. / Test File: `tests/test_scanner.py`
+- **Green**: Modified assertion in test to use `unittest.mock.ANY` for `last_modified` timestamp comparison. The existing `try...except OSError` block in `_process_file` correctly handled the simulated error and allowed processing to continue. All tests passed. / Code File: `src/storage_hygiene/scanner.py`
+- **Refactor**: No refactoring needed. Basic error handling is sufficient for now. / Files Changed: `[]`
+- **Outcome**: Cycle 6 completed, tests passing. Confirmed graceful handling of file processing errors.
+- **Related Requirements**: [SCAN_HandleErrors] in `pseudocode/scanner.pseudo`
+- **Red**: Added test `test_scan_directory_skips_unchanged_files`. Configured mock `query_files` to return an existing record. Test failed with `AssertionError: Expected 'query_files' to be called once. Called 0 times.`. / Test File: `tests/test_scanner.py`
+- **Green**: Modified `scan_directory` to call `self.metadata_store.query_files`. Added logic to compare `size` and `last_modified` (with tolerance) against the returned record. If matched, `continue` to skip processing. Fixed mock config in `test_scan_directory_finds_files_and_calls_upsert` to return `[]`. All tests passed. / Code File: `src/storage_hygiene/scanner.py`
+- **Refactor**: Extracted file processing logic (incremental check, stat, hash, upsert) into `_process_file` helper method. Ran tests again, all passed. / Files Changed: `['src/storage_hygiene/scanner.py']`
+- **Outcome**: Cycle 5 completed, tests passing. Confirmed incremental scan logic skips unchanged files. Code refactored for clarity.
+- **Related Requirements**: [SCAN_Incremental], [SCAN_InteractMS] in `pseudocode/scanner.pseudo`, `docs/architecture/adr/004-incremental-scans.md`
+- **Red**: Modified test `test_scan_directory_finds_files_and_calls_upsert` to assert `hash_value`. Test failed with `AssertionError: assert None == 'd0b4...'`. / Test File: `tests/test_scanner.py`
+- **Green**: Added `_calculate_hash` helper method using `hashlib.sha256` and reading file in chunks. Called this method in `scan_directory` and passed the result to `upsert_file_record`. Test passed. / Code File: `src/storage_hygiene/scanner.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 4 completed, tests passing. Confirmed hash calculation and passing to MetadataStore.
+- **Related Requirements**: [SCAN_CalcHash], [SCAN_InteractMS] in `pseudocode/scanner.pseudo`
+- **Red**: Modified test `test_scan_directory_finds_files_and_calls_upsert` to assert `size` and `last_modified` are passed to `upsert_file_record`. Added `datetime` import. Test failed with `AssertionError: assert None == 8`. / Test File: `tests/test_scanner.py`
+- **Green**: Modified `scan_directory` to use `item_path.stat()` to get `st_size` and `st_mtime`. Converted `mtime` to timezone-aware UTC `datetime`. Passed these values to `upsert_file_record`. Added basic `try...except OSError` around `stat()`. Test passed. / Code File: `src/storage_hygiene/scanner.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 3 completed, tests passing. Confirmed collection and passing of basic metadata (size, mtime).
+- **Related Requirements**: [SCAN_CollectMeta], [SCAN_InteractMS] in `pseudocode/scanner.pseudo`
+- **Red**: Added test `test_scan_directory_finds_files_and_calls_upsert`. Failed with `AttributeError: 'Scanner' object has no attribute 'scan_directory'`. / Test File: `tests/test_scanner.py`
+- **Green**: Implemented minimal `scan_directory` method using `pathlib.Path.rglob('*')` to find files and calling `self.metadata_store.upsert_file_record` with just the resolved `file_path`. Test passed. / Code File: `src/storage_hygiene/scanner.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 2 completed, tests passing. Confirmed basic directory traversal and interaction with MetadataStore mock.
+- **Related Requirements**: [SCAN_Traverse], [SCAN_InteractMS] (partially) in `pseudocode/scanner.pseudo`
+- **Red**: Wrote failing test `test_scanner_initialization` in `tests/test_scanner.py`. Pytest skipped the test as `Scanner` class was not found. / Test File: `tests/test_scanner.py`
+- **Green**: Created minimal `Scanner` class in `src/storage_hygiene/scanner.py` with `__init__` accepting `config_manager` and `metadata_store`. Test passed. / Code File: `src/storage_hygiene/scanner.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 1 completed, test passing. Confirmed basic class structure and dependency injection.
+- **Related Requirements**: [SCAN_Init] in `pseudocode/scanner.pseudo`
 - **Failed Tests**: None
 - **Notes**: Initial test for default config loading passed after minimal implementation. Ran using `python -m pytest`.
 

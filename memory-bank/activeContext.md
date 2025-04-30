@@ -1,5 +1,12 @@
 # Active Context
 <!-- Entries below should be added reverse chronologically (newest first) -->
+[2025-04-29 22:44:37] - TDD - TDD Cycle 6 (Scanner Error Handling) - Green: Added test test_scan_directory_handles_permission_error. Fixed assertion using ANY for timestamp. Existing try/except OSError in _process_file was sufficient. All tests passed.
+[2025-04-29 22:42:40] - TDD - TDD Cycle 5 (Scanner Incremental Scan) - Refactor: Extracted file processing logic into _process_file method. Tests passed.
+[2025-04-29 22:39:53] - TDD - TDD Cycle 4 (Scanner Calc Hash) - Green: Added _calculate_hash helper method and called it in scan_directory. Test test_scan_directory_finds_files_and_calls_upsert passed hash assertion.
+[2025-04-29 22:38:06] - TDD - TDD Cycle 3 (Scanner Collect Metadata) - Green: Modified scan_directory to collect size/mtime using path.stat() and pass to upsert_file_record. Test test_scan_directory_finds_files_and_calls_upsert passed.
+[2025-04-29 22:35:24] - TDD - TDD Cycle 2 (Scanner Traverse/MS Call) - Green: Minimal scan_directory method implemented using pathlib.rglob. Test test_scan_directory_finds_files_and_calls_upsert passed.
+[2025-04-29 22:34:05] - TDD - TDD Cycle 1 (Scanner Init) - Green: Minimal Scanner class created. Test test_scanner_initialization passed.
+[2025-04-29 22:31:12] - SPARC - Task Completed - `tdd` mode finished implementing `MetadataStore` component. [See Delegation: 2025-04-29 21:32:24]
 [2025-04-29 21:31:30] - SPARC - Task Completed - `tdd` mode finished implementing `ConfigManager` component. [See Delegation: 2025-04-29 21:01:50]
 [2025-04-29 21:25:27] - TDD - TDD Cycle 6 (Credential Placeholders) - Green: Added test_get_credential_placeholder. Test passed immediately as the existing get() method returned the placeholder string correctly. All 6 tests pass.
 [2025-04-29 21:23:39] - TDD - TDD Cycle 5 (Schema Validation) - Green: Added _validate_schema method with basic type check for 'analysis.min_file_size_mb'. All 5 tests pass.
