@@ -24,19 +24,79 @@
 ## Workflow State
 # Workflow State (Current - Overwrite this section)
 - Current phase: Testing
-- Phase start: [2025-04-29 20:54:35]
-- Current focus: Prepare delegation for TDD implementation of MetadataStore component.
-- Next actions: Delegate MetadataStore TDD task to `tdd` mode.
-- Last Updated: [2025-04-29 21:32:13]
+- Phase start: [2025-04-29 23:48:11]
+- Current focus: Prepare delegation for comprehensive testing of the integrated workflow (main.py).
+- Next actions: Delegate testing task (e.g., to `qa-tester` or `tdd` for more integration/E2E tests).
+- Last Updated: [2025-04-29 23:48:11]
 
 ## Delegations Log
+### [2025-04-29 23:48:33] Task: Comprehensive Testing of Integrated Workflow
+- Assigned to: qa-tester
+- Description: Perform comprehensive testing of the integrated workflow executed by `src/storage_hygiene/main.py`. Expand upon the initial integration test (`tests/integration/test_main_workflow.py`). Focus on verifying:
+    - Correct behavior with different configuration files (`config.yaml`).
+    - Handling of various file types and directory structures during scanning.
+    - Accuracy of analysis rules (duplicates, size, age) based on configuration.
+    - Correct execution of actions (`stage_duplicate`, `review_large`, `review_old`) in **both dry-run and non-dry-run modes**.
+    - **For non-dry-run tests, ensure a safe test environment is used (e.g., temporary directories created and cleaned up via `pytest` fixtures or similar) to avoid modifying real user data.**
+    - Error handling (e.g., invalid config, non-existent directories, file access errors during staging).
+    - Correct functioning of CLI arguments.
+- Expected deliverable: Expanded integration/E2E test suite (e.g., adding tests to `tests/integration/test_main_workflow.py` or creating new files in `tests/integration/`). A test report summarizing findings, passed/failed tests, and any identified bugs or areas needing refinement. Update `memory-bank/mode-specific/qa-tester.md`.
+- Status: pending
+- Completion time: N/A
+- Outcome: N/A
+- Link to Progress Entry: N/A
+- Link to Integration Task: [See Delegation: 2025-04-29 23:30:54]
+- Link to Main Script: `src/storage_hygiene/main.py`
+### [2025-04-29 23:30:54] Task: Integrate Core Components
+- Assigned to: integration
+- Description: Integrate the core components (`ConfigManager`, `MetadataStore`, `Scanner`, `AnalysisEngine`, `ActionExecutor`) into a functional workflow. Create a main script (e.g., `src/main.py` or similar) that initializes these components, orchestrates the process (load config, scan directories, analyze metadata, execute actions), and potentially includes basic command-line argument parsing (e.g., for config file path, target directories, dry-run flag). Ensure components are instantiated correctly and data flows between them as designed (Scanner -> MetadataStore, MetadataStore/ConfigManager -> AnalysisEngine, AnalysisEngine -> ActionExecutor). Focus on wiring components together; detailed UI/CLI is a later step.
+- Expected deliverable: A main script (e.g., `src/main.py`) demonstrating the integrated workflow. Update `src/storage_hygiene/__init__.py` if necessary to expose components. Add integration tests if feasible within the scope. Update `memory-bank/mode-specific/integration.md`.
+- Status: completed
+- Completion time: [2025-04-29 23:47:31]
+- Outcome: Successfully integrated core components in `src/storage_hygiene/main.py` with CLI args. Added integration test (`tests/integration/test_main_workflow.py`). Fixed several interface issues during integration. See integration.md for details.
+- Link to Progress Entry: N/A
+- Link to Architecture: [See `docs/architecture/architecture_report.md`]
+- Link to Components: [See Delegation: 2025-04-29 21:01:50] (ConfigManager), [See Delegation: 2025-04-29 21:32:24] (MetadataStore), [See Delegation: 2025-04-29 22:32:06] (Scanner), [See Delegation: 2025-04-29 22:47:19] (AnalysisEngine), [See Delegation: 2025-04-29 23:00:36] (ActionExecutor)
+### [2025-04-29 23:00:36] Task: TDD Implementation - ActionExecutor
+- Assigned to: tdd
+- Description: Implement the `ActionExecutor` component using a Test-Driven Development (TDD) approach (London School). Focus on receiving candidate actions (from `AnalysisEngine`), retrieving configuration (e.g., staging directory path, dry_run setting from `ConfigManager`), and executing file system operations (staging duplicates/large/old files by moving them, potentially deleting files if configured). **Crucially, implement and test 'dry_run' functionality (ADR-005) where actions are logged but not executed.** Use `pseudocode/action_executor.pseudo` and its TDD anchors as a guide. Implement in Python using `pytest`. **Pay close attention to mocking file system operations (`os`, `shutil`) during testing.**
+- Expected deliverable: Python source code (`src/storage_hygiene/action_executor.py`), corresponding test file (`tests/test_action_executor.py`) with passing tests covering core functionality (handling different action types, staging logic, deletion logic, dry_run mode, interaction with ConfigManager mock/stub, error handling for file operations). Update `requirements.txt` if new dependencies are added. Update `memory-bank/mode-specific/tdd.md`.
+- Status: completed
+- Completion time: [2025-04-29 23:29:59]
+- Outcome: Successfully implemented ActionExecutor via TDD (10 cycles). Handled staging actions, dry_run mode, and mocked file system ops. Added pytest-mock dependency. See tdd.md for details.
+- Link to Progress Entry: N/A
+- Link to Pseudocode: [See `pseudocode/action_executor.pseudo`], [See `memory-bank/mode-specific/spec-pseudocode.md`]
+- Link to Architecture: [See `docs/architecture/architecture_report.md`], [See ADR-005 `docs/architecture/adr/005-dry-run-mode.md`]
+- Link to Previous Components: [See Delegation: 2025-04-29 21:01:50] (ConfigManager), [See Delegation: 2025-04-29 22:47:19] (AnalysisEngine)
+### [2025-04-29 22:47:19] Task: TDD Implementation - AnalysisEngine
+- Assigned to: tdd
+- Description: Implement the `AnalysisEngine` component using a Test-Driven Development (TDD) approach (London School). Focus on retrieving file metadata from the `MetadataStore`, applying analysis rules (e.g., identifying duplicates by hash, large files by size, old files by timestamp) based on configuration from `ConfigManager`, and generating candidate actions (e.g., stage_for_deletion, review_large_file). Use `pseudocode/analysis_engine.pseudo` and its TDD anchors as a guide. Implement in Python using `pytest`.
+- Expected deliverable: Python source code (`src/storage_hygiene/analysis_engine.py`), corresponding test file (`tests/test_analysis_engine.py`) with passing tests covering core functionality (rule application for duplicates, size, age; interaction with ConfigManager and MetadataStore mocks/stubs; generation of action candidates). Update `requirements.txt` if new dependencies are added. Update `memory-bank/mode-specific/tdd.md`.
+- Status: completed
+- Completion time: [2025-04-29 22:59:42]
+- Outcome: Successfully implemented AnalysisEngine via TDD. Tests passing. No new dependencies. See tdd.md for details.
+- Link to Progress Entry: N/A
+- Link to Pseudocode: [See `pseudocode/analysis_engine.pseudo`], [See `memory-bank/mode-specific/spec-pseudocode.md`]
+- Link to Architecture: [See `docs/architecture/architecture_report.md`], [See ADR-006 `docs/architecture/adr/006-ai-integration-timing.md`]
+- Link to Previous Components: [See Delegation: 2025-04-29 21:01:50] (ConfigManager), [See Delegation: 2025-04-29 21:32:24] (MetadataStore), [See Delegation: 2025-04-29 22:32:06] (Scanner)
+### [2025-04-29 22:32:06] Task: TDD Implementation - Scanner
+- Assigned to: tdd
+- Description: Implement the `Scanner` component using a Test-Driven Development (TDD) approach (London School). Focus on traversing specified directories, collecting file metadata (path, size, timestamps, hash), handling errors during traversal/hashing, and utilizing the `MetadataStore` to check for existing records and update/add them. Use `pseudocode/scanner.pseudo` and its TDD anchors as a guide. Implement in Python using `pytest`. Consider using `pathlib` for path manipulation and `hashlib` for hashing.
+- Expected deliverable: Python source code (`src/storage_hygiene/scanner.py`), corresponding test file (`tests/test_scanner.py`) with passing tests covering core functionality (directory traversal, metadata collection, hashing, interaction with MetadataStore mock/stub, error handling). Update `requirements.txt` if new dependencies are added. Update `memory-bank/mode-specific/tdd.md`.
+- Status: completed
+- Completion time: [2025-04-29 22:46:23]
+- Outcome: Successfully implemented Scanner via TDD. Tests passing. No new dependencies. See tdd.md for details.
+- Link to Progress Entry: N/A
+- Link to Pseudocode: [See `pseudocode/scanner.pseudo`], [See `memory-bank/mode-specific/spec-pseudocode.md`]
+- Link to Architecture: [See `docs/architecture/architecture_report.md`], [See ADR-004 `docs/architecture/adr/004-incremental-scans.md`]
+- Link to Previous Components: [See Delegation: 2025-04-29 21:01:50] (ConfigManager), [See Delegation: 2025-04-29 21:32:24] (MetadataStore)
 ### [2025-04-29 21:32:24] Task: TDD Implementation - MetadataStore
 - Assigned to: tdd
 - Description: Implement the `MetadataStore` component using a Test-Driven Development (TDD) approach (London School). Focus on initializing the DuckDB database, creating/managing the `files` table schema, adding/updating file metadata records, and querying metadata based on criteria specified in the pseudocode. Use `pseudocode/metadata_store.pseudo` and its TDD anchors as a guide. Implement in Python using `pytest` and `duckdb`.
 - Expected deliverable: Python source code (`src/storage_hygiene/metadata_store.py`), corresponding test file (`tests/test_metadata_store.py`) with passing tests covering core functionality (init, add/update, query). Update `requirements.txt` with `duckdb`. Update `memory-bank/mode-specific/tdd.md`.
-- Status: pending
-- Completion time: N/A
-- Outcome: N/A
+- Status: completed
+- Completion time: [2025-04-29 22:31:12]
+- Outcome: Successfully implemented MetadataStore via TDD. Tests passing. Added duckdb, pytz dependencies. See tdd.md for details.
 - Link to Progress Entry: N/A
 - Link to Pseudocode: [See `pseudocode/metadata_store.pseudo`], [See `memory-bank/mode-specific/spec-pseudocode.md`]
 - Link to Architecture: [See `docs/architecture/architecture_report.md`], [See ADR-003 `docs/architecture/adr/003-metadata-storage.md`]

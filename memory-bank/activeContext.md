@@ -1,5 +1,9 @@
 # Active Context
 <!-- Entries below should be added reverse chronologically (newest first) -->
+[2025-04-30 00:26:41] - Debug - Task Completed - Investigated and fixed the remaining 10 pytest failures. All 39 tests now pass. Issues involved integration test logic (staging paths, invalid YAML handling), unit test assertions (hash key), and error propagation in main.py. [See Issue: Pytest-Failures-Remaining-10 in debug.md]
+[2025-04-30 00:14:56] - Debug - Task Update - Applied fixes for remaining 13 pytest failures (path normalization, error propagation, test assertions). Preparing completion. [See Issue: Pytest-Failures-Remaining-13 in debug.md]
+[2025-04-30 00:05:15] - Debug - Task Completed - Fixed 16 pytest failures across multiple components (ActionExecutor, AnalysisEngine, Scanner, MetadataStore, Main Workflow, Tests). [See Issue: Pytest-Failures-20250430 in debug.md]
+[2025-04-29 23:47:31] - SPARC - Task Completed - `integration` mode finished integrating core components into `main.py` workflow. [See Delegation: 2025-04-29 23:30:54]
 [2025-04-29 23:45:11] - Integration - Integration Test Passed - Core component workflow integration test (`test_main_workflow_dry_run`) passed after multiple fixes.
 [2025-04-29 23:29:59] - SPARC - Task Completed - `tdd` mode finished implementing `ActionExecutor` component. [See Delegation: 2025-04-29 23:00:36]
 [2025-04-29 23:27:35] - TDD - TDD Cycle 10 (Error Handling - File Not Found) - Green: Added test test_stage_file_handles_file_not_found_error. Test passed immediately as existing try/except OSError block handled it. All tests passed.
