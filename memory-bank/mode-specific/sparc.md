@@ -23,13 +23,28 @@
 - **Follow-up**: Break down TDD implementation into smaller, component-focused tasks. Re-delegate starting with a single component. [See Feedback: 2025-04-29 21:01:03]
 ## Workflow State
 # Workflow State (Current - Overwrite this section)
-- Current phase: Testing
-- Phase start: [2025-04-29 23:48:11]
-- Current focus: Prepare delegation for comprehensive testing of the integrated workflow (main.py).
-- Next actions: Delegate testing task (e.g., to `qa-tester` or `tdd` for more integration/E2E tests).
-- Last Updated: [2025-04-29 23:48:11]
+- Current phase: Completion
+- Phase start: [2025-04-30 01:26:42]
+- Current focus: Prepare delegation for documenting the core system (`main.py` usage, configuration, component overview).
+- Next actions: Delegate documentation task to `docs-writer` mode.
+- Last Updated: [2025-04-30 01:26:42]
 
 ## Delegations Log
+### [2025-04-30 01:27:18] Task: Document Core System Usage and Structure
+- Assigned to: docs-writer
+- Description: Create user-facing documentation for the core Storage Hygiene system. Focus on:
+    - **README.md:** Update or create a main `README.md` file. Include a project overview, installation instructions (setting up virtual environment, installing `requirements.txt`), basic usage of `main.py` via CLI (explaining arguments like `--config`, `--targets`, `--db-path`, `--dry-run`), and a brief explanation of the core workflow.
+    - **Configuration:** Document the structure and options available in the `config.yaml` file (e.g., `scan_paths`, `staging_path`, `database_path`, `rules` thresholds and actions). Provide clear examples. This could be part of the README or a separate `docs/configuration.md`.
+    - **Component Overview:** Briefly describe the role of each core component (`ConfigManager`, `MetadataStore`, `Scanner`, `AnalysisEngine`, `ActionExecutor`) and how they interact, referencing the architecture diagram (`docs/architecture/architecture_report.md`). This could be part of the README or a separate `docs/architecture_overview.md`.
+    - **Staging Area:** Explain the purpose and structure of the staging directory.
+- Expected deliverable: Updated/new Markdown documentation files (e.g., `README.md`, `docs/configuration.md`, `docs/architecture_overview.md`). Update `memory-bank/mode-specific/docs-writer.md`.
+- Status: pending
+- Completion time: N/A
+- Outcome: N/A
+- Link to Progress Entry: N/A
+- Link to Main Script: `src/storage_hygiene/main.py`
+- Link to Config Example: `config.yaml` (or reference where it's defined)
+- Link to Architecture: `docs/architecture/architecture_report.md`
 ### [2025-04-29 23:48:33] Task: Comprehensive Testing of Integrated Workflow
 - Assigned to: qa-tester
 - Description: Perform comprehensive testing of the integrated workflow executed by `src/storage_hygiene/main.py`. Expand upon the initial integration test (`tests/integration/test_main_workflow.py`). Focus on verifying:
@@ -41,9 +56,9 @@
     - Error handling (e.g., invalid config, non-existent directories, file access errors during staging).
     - Correct functioning of CLI arguments.
 - Expected deliverable: Expanded integration/E2E test suite (e.g., adding tests to `tests/integration/test_main_workflow.py` or creating new files in `tests/integration/`). A test report summarizing findings, passed/failed tests, and any identified bugs or areas needing refinement. Update `memory-bank/mode-specific/qa-tester.md`.
-- Status: pending
-- Completion time: N/A
-- Outcome: N/A
+- Status: completed
+- Completion time: [2025-04-30 01:25:52]
+- Outcome: Successfully expanded integration tests (`tests/integration/test_main_workflow.py`) covering config variations, scanning edge cases, analysis rules, dry/non-dry run actions (using safe tmp_path fixtures), error handling, and CLI args. Fixed bugs in ActionExecutor (duplicate move prevention) and main.py (error exit code). All 46 tests pass. See qa-tester.md/tdd.md for details.
 - Link to Progress Entry: N/A
 - Link to Integration Task: [See Delegation: 2025-04-29 23:30:54]
 - Link to Main Script: `src/storage_hygiene/main.py`
