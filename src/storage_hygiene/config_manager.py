@@ -45,9 +45,10 @@ class ConfigManager:
             try:
                 with open(path, 'r') as f:
                     user_data = yaml.safe_load(f)
-                    # Ensure loaded data is a dictionary, return None otherwise (or raise?)
-                    # For now, returning None is simplest to pass the test. Validation comes later.
-                    return user_data if isinstance(user_data, dict) else None
+                    # Ensure loaded data is a dictionary. If not, raise ConfigLoadError.
+                    if not isinstance(user_data, dict):
+                        raise ConfigLoadError(f"Error loading user config '{path}': Root element is not a dictionary.")
+                    return user_data
             except yaml.YAMLError as e:
                 # Raise ConfigLoadError, wrapping the original YAMLError
                 raise ConfigLoadError(f"Error loading user config '{path}': Invalid YAML format - {e}") from e
