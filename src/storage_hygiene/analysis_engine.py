@@ -1,4 +1,6 @@
 from datetime import datetime, timezone, timedelta
+from collections import defaultdict # Import defaultdict
+
 class AnalysisEngine:
     """
     Analyzes file metadata based on configured rules to identify potential
@@ -25,17 +27,19 @@ class AnalysisEngine:
         Performs the analysis based on loaded rules and metadata.
 
         Returns:
-            list: A list of candidate action dictionaries.
+            dict: A dictionary where keys are action types (str) and values
+                  are lists of file info dictionaries relevant to that action.
         """
-        action_candidates = []
+        # Use defaultdict to group actions by type
+        action_candidates = defaultdict(list)
 
         self._apply_duplicate_rule(action_candidates)
         self._apply_large_file_rule(action_candidates)
         self._apply_old_file_rule(action_candidates)
 
-        return action_candidates
+        return dict(action_candidates) # Convert back to regular dict if needed
 
-    def _apply_duplicate_rule(self, action_candidates):
+    def _apply_duplicate_rule(self, action_candidates: defaultdict):
         """Applies the duplicate file detection rule."""
         duplicate_rule = self.rules.get('duplicate_files', {})
         if not duplicate_rule.get('enabled', False):
@@ -48,15 +52,16 @@ class AnalysisEngine:
                 files.sort(key=lambda x: (x['last_modified'], x['path']))
                 original_file = files[0]
                 for duplicate_file in files[1:]:
-                    action_candidates.append({
-                        'action': 'stage_duplicate',
+                    # Append file info dict to the list for 'stage_duplicate'
+                    action_candidates['stage_duplicate'].append({
+                        'action': 'stage_duplicate', # Add action key
                         'path': duplicate_file['path'],
                         'hash': hash_value,
                         'original_path': original_file['path'],
                         'reason': f"Duplicate of {original_file['path']}"
                     })
 
-    def _apply_large_file_rule(self, action_candidates):
+    def _apply_large_file_rule(self, action_candidates: defaultdict):
         """Applies the large file detection rule."""
         large_file_rule = self.rules.get('large_files', {})
         if not large_file_rule.get('enabled', False):
@@ -71,18 +76,20 @@ class AnalysisEngine:
         min_size_bytes = min_size_mb * 1024 * 1024
 
         # Query all files for simplicity now. Could optimize later if needed.
-        all_files = self.metadata_store.query_files()
+        all_files = self.metadata_store.query_files(criteria={}) # Pass empty criteria dict
 
         for file_record in all_files:
-            if file_record['size'] > min_size_bytes:
-                size_mb = file_record['size'] / (1024 * 1024)
-                action_candidates.append({
-                    'action': 'review_large',
+            # Check if 'size_bytes' key exists and is not None before comparison
+            if file_record.get('size_bytes') is not None and file_record['size_bytes'] > min_size_bytes:
+                size_mb = file_record['size_bytes'] / (1024 * 1024)
+                # Append file info dict to the list for 'review_large'
+                action_candidates['review_large'].append({
+                    'action': 'review_large', # Add action key
                     'path': file_record['path'],
-                    'size': file_record['size'],
+                    'size': file_record['size_bytes'], # Use correct key
                     'reason': f'File size ({size_mb:.1f} MB) exceeds threshold ({min_size_mb} MB)'
                 })
-    def _apply_old_file_rule(self, action_candidates):
+    def _apply_old_file_rule(self, action_candidates: defaultdict):
         """Applies the old file detection rule."""
         old_file_rule = self.rules.get('old_files', {})
         if not old_file_rule.get('enabled', False):
@@ -106,7 +113,7 @@ class AnalysisEngine:
         threshold_date = now - timedelta(days=max_days_int)
 
         # Query all files for simplicity now.
-        all_files = self.metadata_store.query_files()
+        all_files = self.metadata_store.query_files(criteria={}) # Pass empty criteria dict
 
         for file_record in all_files:
             # Ensure last_modified is timezone-aware (assuming UTC from MetadataStore)
@@ -118,8 +125,9 @@ class AnalysisEngine:
                  last_modified = last_modified.replace(tzinfo=timezone.utc)
 
             if last_modified and last_modified < threshold_date:
-                action_candidates.append({
-                    'action': 'review_old',
+                 # Append file info dict to the list for 'review_old'
+                action_candidates['review_old'].append({
+                    'action': 'review_old', # Add action key
                     'path': file_record['path'],
                     'last_modified': last_modified, # Store the actual datetime object
                     'reason': f'File older than {max_days_int} days'
