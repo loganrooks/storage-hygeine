@@ -1,5 +1,23 @@
 # Active Context
 <!-- Entries below should be added reverse chronologically (newest first) -->
+[2025-04-29 23:27:35] - TDD - TDD Cycle 10 (Error Handling - File Not Found) - Green: Added test test_stage_file_handles_file_not_found_error. Test passed immediately as existing try/except OSError block handled it. All tests passed.
+[2025-04-29 23:26:19] - TDD - TDD Cycle 9 (ActionExecutor - Review Old Logic) - Green: Added test test_review_old_moves_file. Implemented _review_old to call _stage_file. All tests passed.
+[2025-04-29 23:24:37] - TDD - TDD Cycle 8 (ActionExecutor - Dispatch Review Old) - Green: Added placeholder _review_old method and handler map entry. Added test test_execute_actions_dispatches_review_old. All tests passed.
+[2025-04-29 23:23:17] - TDD - TDD Cycle 7 (ActionExecutor - Review Large Logic) - Refactor: Refactored _stage_duplicate and _review_large to use generic _stage_file method. All tests passed.
+[2025-04-29 23:19:40] - TDD - TDD Cycle 6 (ActionExecutor - Dispatch Review Large) - Green: Added placeholder _review_large method and handler map entry. Added test test_execute_actions_dispatches_review_large. All tests passed.
+[2025-04-29 23:18:16] - TDD - TDD Cycle 5 (ActionExecutor - Dry Run Mode) - Green: Added test test_stage_duplicate_dry_run_logs_and_skips_move. Test passed immediately as dry run logic was already present. All tests passed.
+[2025-04-29 23:16:56] - TDD - TDD Cycle 4 (ActionExecutor - Stage Duplicate Logic) - Refactor: Extracted path calculation to _get_staging_path helper. All tests passed.
+[2025-04-29 23:14:35] - TDD - TDD Cycle 3 (ActionExecutor Dispatch - Stage Duplicate) - Refactor: Refactored dispatch logic in execute_actions to use a handler map. Fixed test patching issue. All tests passed.
+[2025-04-29 23:11:10] - TDD - TDD Cycle 2 (ActionExecutor Load Config) - Green: Minimal execute_actions method implemented, retrieving staging_dir and dry_run from config. Test test_execute_actions_retrieves_config passed.
+[2025-04-29 23:02:27] - TDD - TDD Cycle 1 (ActionExecutor Init) - Green: Minimal ActionExecutor class created, storing config_manager. Test test_action_executor_initialization passed.
+[2025-04-29 22:59:42] - SPARC - Task Completed - `tdd` mode finished implementing `AnalysisEngine` component. [See Delegation: 2025-04-29 22:47:19]
+[2025-04-29 22:57:37] - TDD - TDD Cycle 5 (AnalysisEngine - Old File Rule) - Green: Implemented _apply_old_file_rule method and called it from analyze. Test test_analyze_identifies_old_files passed after fixing previous tool errors.
+[2025-04-29 22:54:22] - TDD - TDD Cycle 4 (AnalysisEngine - Large File Rule) - Green: Implemented _apply_large_file_rule method and called it from analyze. Test test_analyze_identifies_large_files passed.
+[2025-04-29 22:52:48] - TDD - TDD Cycle 3 (AnalysisEngine - Duplicate Rule) - Refactor: Extracted duplicate logic to _apply_duplicate_rule method. Tests passed.
+[2025-04-29 22:52:24] - TDD - TDD Cycle 3 (AnalysisEngine - Duplicate Rule) - Green: Implemented duplicate detection logic in analyze method. Test test_analyze_identifies_duplicate_files passed.
+[2025-04-29 22:50:35] - TDD - TDD Cycle 2 (AnalysisEngine Load Rules) - Green: Modified _load_rules to call config_manager.get('analysis.rules'). Test test_analysis_engine_loads_rules_from_config passed.
+[2025-04-29 22:49:08] - TDD - TDD Cycle 1 (AnalysisEngine Init) - Green: Minimal AnalysisEngine class created. Test test_analysis_engine_initialization passed.
+[2025-04-29 22:46:23] - SPARC - Task Completed - `tdd` mode finished implementing `Scanner` component. [See Delegation: 2025-04-29 22:32:06]
 [2025-04-29 22:44:37] - TDD - TDD Cycle 6 (Scanner Error Handling) - Green: Added test test_scan_directory_handles_permission_error. Fixed assertion using ANY for timestamp. Existing try/except OSError in _process_file was sufficient. All tests passed.
 [2025-04-29 22:42:40] - TDD - TDD Cycle 5 (Scanner Incremental Scan) - Refactor: Extracted file processing logic into _process_file method. Tests passed.
 [2025-04-29 22:39:53] - TDD - TDD Cycle 4 (Scanner Calc Hash) - Green: Added _calculate_hash helper method and called it in scan_directory. Test test_scan_directory_finds_files_and_calls_upsert passed hash assertion.

@@ -3,15 +3,65 @@
 
 ## Test Execution Results
 <!-- Append test run summaries using the format below -->
-### Test Execution: Unit - [2025-04-29 22:57:37]
-- **Trigger**: Manual TDD Cycle 5 (AnalysisEngine - Old File Rule)
-- **Outcome**: PASS / **Summary**: [5 tests passed, 0 failed]
+### Test Execution: Unit - [2025-04-29 23:02:27]
+- **Trigger**: Manual TDD Cycle 1 (ActionExecutor - Init)
+- **Outcome**: PASS / **Summary**: [1 test passed, 0 failed]
 - **Failed Tests**: None
-- **Notes**: Test `test_analyze_identifies_old_files` passed after implementing `_apply_old_file_rule` and fixing previous tool errors.
-### Test Execution: Unit - [2025-04-29 22:54:22]
-- **Trigger**: Manual TDD Cycle 4 (AnalysisEngine - Large File Rule)
+- **Notes**: Test `test_action_executor_initialization` passed after minimal `ActionExecutor` class implementation.
+### Test Execution: Unit - [2025-04-29 22:57:37]
+### Test Execution: Unit - [2025-04-29 23:11:10]
+- **Trigger**: Manual TDD Cycle 2 (ActionExecutor - Load Config)
+- **Outcome**: PASS / **Summary**: [2 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_execute_actions_retrieves_config` passed after minimal `execute_actions` implementation.
+- **Trigger**: Manual TDD Cycle 5 (AnalysisEngine - Old File Rule)
+### Test Execution: Unit - [2025-04-29 23:14:35]
+- **Trigger**: Manual TDD Cycle 3 Refactor (ActionExecutor - Dispatch)
+- **Outcome**: PASS / **Summary**: [3 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Tests passed after fixing test patching issue related to refactored handler map.
+- **Outcome**: PASS / **Summary**: [5 tests passed, 0 failed]
+### Test Execution: Unit - [2025-04-29 23:16:56]
+- **Trigger**: Manual TDD Cycle 4 (ActionExecutor - Stage Duplicate Logic)
 - **Outcome**: PASS / **Summary**: [4 tests passed, 0 failed]
 - **Failed Tests**: None
+- **Notes**: Tests passed after implementing `_stage_duplicate` logic and refactoring path calculation into `_get_staging_path`.
+- **Failed Tests**: None
+### Test Execution: Unit - [2025-04-29 23:18:16]
+- **Trigger**: Manual TDD Cycle 5 (ActionExecutor - Dry Run Mode)
+- **Outcome**: PASS / **Summary**: [5 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_stage_duplicate_dry_run_logs_and_skips_move` passed, confirming dry run logic.
+- **Notes**: Test `test_analyze_identifies_old_files` passed after implementing `_apply_old_file_rule` and fixing previous tool errors.
+### Test Execution: Unit - [2025-04-29 23:19:40]
+- **Trigger**: Manual TDD Cycle 6 (ActionExecutor - Dispatch Review Large)
+- **Outcome**: PASS / **Summary**: [6 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_execute_actions_dispatches_review_large` passed, confirming dispatch logic for this action type.
+### Test Execution: Unit - [2025-04-29 22:54:22]
+### Test Execution: Unit - [2025-04-29 23:23:17]
+- **Trigger**: Manual TDD Cycle 7 (ActionExecutor - Review Large Logic)
+- **Outcome**: PASS / **Summary**: [7 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_review_large_moves_file` passed after implementing logic in `_review_large`. Refactored staging logic into generic `_stage_file` method.
+- **Trigger**: Manual TDD Cycle 4 (AnalysisEngine - Large File Rule)
+### Test Execution: Unit - [2025-04-29 23:24:37]
+- **Trigger**: Manual TDD Cycle 8 (ActionExecutor - Dispatch Review Old)
+- **Outcome**: PASS / **Summary**: [8 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_execute_actions_dispatches_review_old` passed, confirming dispatch logic for this action type.
+- **Outcome**: PASS / **Summary**: [4 tests passed, 0 failed]
+### Test Execution: Unit - [2025-04-29 23:26:19]
+- **Trigger**: Manual TDD Cycle 9 (ActionExecutor - Review Old Logic)
+- **Outcome**: PASS / **Summary**: [9 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_review_old_moves_file` passed after implementing `_review_old` to call `_stage_file`.
+- **Failed Tests**: None
+### Test Execution: Unit - [2025-04-29 23:27:35]
+- **Trigger**: Manual TDD Cycle 10 (Error Handling - File Not Found)
+- **Outcome**: PASS / **Summary**: [10 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_stage_file_handles_file_not_found_error` passed, confirming existing try/except block handles move errors.
 - **Notes**: Test `test_analyze_identifies_large_files` passed after implementing `_apply_large_file_rule`.
 ### Test Execution: Unit - [2025-04-29 22:52:48]
 - **Trigger**: Manual TDD Cycle 3 Refactor (AnalysisEngine - Duplicate Rule)
@@ -275,6 +325,66 @@
 - **Refactor**: No refactoring needed. / Files Changed: `[]`
 - **Outcome**: Cycle 1 completed, test passing. Confirmed basic class structure and dependency injection.
 - **Related Requirements**: [SCAN_Init] in `pseudocode/scanner.pseudo`
+### TDD Cycle: ActionExecutor - Init - [2025-04-29 23:02:27]
+- **Red**: Wrote failing test `test_action_executor_initialization` in `tests/test_action_executor.py`. Test failed with `AttributeError`. / Test File: `tests/test_action_executor.py`
+### TDD Cycle: ActionExecutor - Load Config - [2025-04-29 23:11:10]
+- **Red**: Added test `test_execute_actions_retrieves_config`. Failed with `fixture 'mocker' not found`. Added `pytest-mock` to requirements and installed. Test then failed with `AttributeError: 'ActionExecutor' object has no attribute 'execute_actions'`. / Test File: `tests/test_action_executor.py`, `requirements.txt`
+- **Green**: Implemented minimal `execute_actions` method in `ActionExecutor`, retrieving `staging_dir` and `dry_run` from `config_manager`. Both tests passed. / Code File: `src/storage_hygiene/action_executor.py`
+### TDD Cycle: ActionExecutor - Dispatch (Stage Duplicate) - [2025-04-29 23:14:35]
+- **Red**: Added test `test_execute_actions_dispatches_stage_duplicate`. Failed with `AttributeError: ... does not have the attribute '_stage_duplicate'`. / Test File: `tests/test_action_executor.py`
+- **Green**: Added placeholder `_stage_duplicate` method and dispatch logic in `execute_actions`. Test passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: Refactored dispatch logic to use a handler map in `__init__`. Test failed due to patching instance after init. Fixed test to patch class before instance creation. All tests passed. / Files Changed: `['src/storage_hygiene/action_executor.py', 'tests/test_action_executor.py']`
+### TDD Cycle: ActionExecutor - Stage Duplicate Logic - [2025-04-29 23:16:56]
+- **Red**: Added test `test_stage_duplicate_moves_file` mocking `os.makedirs` and `shutil.move`. Test failed with `AssertionError: Expected 'makedirs' to be called once. Called 0 times.`. / Test File: `tests/test_action_executor.py`
+- **Green**: Implemented logic in `_stage_duplicate` to calculate destination path using `_get_staging_path` and call `os.makedirs` and `shutil.move` (if not dry run and dest doesn't exist). All tests passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: Confirmed `_get_staging_path` was already extracted during Green phase. No further refactoring needed. All tests passed. / Files Changed: `[]`
+### TDD Cycle: ActionExecutor - Dry Run Mode - [2025-04-29 23:18:16]
+- **Red**: Added test `test_stage_duplicate_dry_run_logs_and_skips_move` with `dry_run=True`. / Test File: `tests/test_action_executor.py`
+- **Green**: Test passed immediately as the existing `_stage_duplicate` implementation already handled the `dry_run` flag correctly. All 5 tests passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: No refactoring needed for dry run logic. / Files Changed: `[]`
+### TDD Cycle: ActionExecutor - Dispatch (Review Large) - [2025-04-29 23:19:40]
+- **Red**: Added placeholder `_review_large` method and handler map entry. Added test `test_execute_actions_dispatches_review_large`. / Test File: `tests/test_action_executor.py`, `src/storage_hygiene/action_executor.py`
+- **Green**: Test passed immediately as the dispatch logic correctly called the new placeholder handler. All 6 tests passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+### TDD Cycle: ActionExecutor - Review Large Logic - [2025-04-29 23:23:17]
+- **Red**: Added test `test_review_large_moves_file`. Failed with `AssertionError: Expected 'makedirs' to be called once. Called 0 times.`. / Test File: `tests/test_action_executor.py`
+- **Green**: Implemented logic in `_review_large` using `_get_staging_path` and calling file system mocks. All 7 tests passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: Refactored `_stage_duplicate` and `_review_large` to use a generic `_stage_file` method. Confirmed tests still pass. / Files Changed: `['src/storage_hygiene/action_executor.py']`
+### TDD Cycle: ActionExecutor - Dispatch (Review Old) - [2025-04-29 23:24:37]
+- **Red**: Added placeholder `_review_old` method and handler map entry. Added test `test_execute_actions_dispatches_review_old`. / Test File: `tests/test_action_executor.py`, `src/storage_hygiene/action_executor.py`
+- **Green**: Test passed immediately as the dispatch logic correctly called the new placeholder handler. All 8 tests passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+### TDD Cycle: ActionExecutor - Review Old Logic - [2025-04-29 23:26:19]
+- **Red**: Added test `test_review_old_moves_file`. Failed with `AssertionError: Expected '_stage_file' to be called once. Called 0 times.`. / Test File: `tests/test_action_executor.py`
+- **Green**: Implemented `_review_old` to call `_stage_file` with appropriate arguments. All 9 tests passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+### TDD Cycle: ActionExecutor - Error Handling (File Not Found) - [2025-04-29 23:27:35]
+- **Red**: Added test `test_stage_file_handles_file_not_found_error` simulating `FileNotFoundError` on `shutil.move`. / Test File: `tests/test_action_executor.py`
+- **Green**: Test passed immediately as the existing `try...except OSError` block in `_stage_file` correctly handled the error. All 10 tests passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 10 completed, tests passing. Confirmed basic error handling for file move operations.
+- **Related Requirements**: [AX_HandleErrors] in `pseudocode/action_executor.pseudo`
+- **Outcome**: Cycle 9 completed, tests passing. Logic for staging old files implemented using the generic method.
+- **Related Requirements**: [AX_StageOld], [AX_FileSystem] in `pseudocode/action_executor.pseudo`
+- **Outcome**: Cycle 8 completed, tests passing. Confirmed dispatch logic for `review_old`.
+- **Related Requirements**: [AX_Dispatch] in `pseudocode/action_executor.pseudo`
+- **Outcome**: Cycle 7 completed, tests passing. Logic for staging large files implemented and staging logic refactored.
+- **Related Requirements**: [AX_StageLarge], [AX_FileSystem], [AX_StagePath] in `pseudocode/action_executor.pseudo`
+- **Outcome**: Cycle 6 completed, tests passing. Confirmed dispatch logic for `review_large`.
+- **Related Requirements**: [AX_Dispatch] in `pseudocode/action_executor.pseudo`
+- **Outcome**: Cycle 5 completed, tests passing. Confirmed dry run logic prevents file operations and logs intent.
+- **Related Requirements**: [AX_DryRun], [AX_StageDup] in `pseudocode/action_executor.pseudo`, `docs/architecture/adr/005-dry-run-mode.md`
+- **Outcome**: Cycle 4 completed, tests passing. Core logic for staging duplicates implemented and path calculation refactored.
+- **Related Requirements**: [AX_StageDup], [AX_FileSystem], [AX_StagePath] in `pseudocode/action_executor.pseudo`
+- **Outcome**: Cycle 3 completed, tests passing. Dispatch logic implemented and refactored.
+- **Related Requirements**: [AX_Dispatch] in `pseudocode/action_executor.pseudo`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 2 completed, tests passing. Confirmed config loading within `execute_actions`.
+- **Related Requirements**: [AX_LoadConfig], [AX_Execute] in `pseudocode/action_executor.pseudo`
+- **Green**: Created minimal `ActionExecutor` class in `src/storage_hygiene/action_executor.py` storing `config_manager`. Test passed. / Code File: `src/storage_hygiene/action_executor.py`
+- **Refactor**: No refactoring needed. / Files Changed: `[]`
+- **Outcome**: Cycle 1 completed, test passing. Confirmed basic class structure and dependency injection.
+- **Related Requirements**: [AX_Init] in `pseudocode/action_executor.pseudo`
 - **Failed Tests**: None
 - **Notes**: Initial test for default config loading passed after minimal implementation. Ran using `python -m pytest`.
 
