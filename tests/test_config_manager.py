@@ -1,7 +1,7 @@
 import pytest
 import yaml
 from pathlib import Path
-from src.storage_hygiene.config_manager import ConfigManager, ConfigLoadError # Import the custom exception
+from storage_hygiene.config_manager import ConfigManager, ConfigLoadError # Import the custom exception
 
 # TDD Anchor: [CM_LoadDefaults] - Test loading default configuration
 def test_load_default_config():
