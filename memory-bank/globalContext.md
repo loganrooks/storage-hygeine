@@ -1,5 +1,11 @@
 # Product Context
 <!-- Entries below should be added reverse chronologically (newest first) -->
+### [2025-04-30 01:33:00] Core System Documentation (User Facing)
+- **Summary:** Initial user documentation created covering system overview, installation, CLI usage, configuration (`config.yaml`), core workflow, staging area, and component architecture overview.
+- **Links:**
+    - [README.md](../../README.md)
+    - [Configuration Guide](../../docs/configuration.md)
+    - [Architecture Overview](../../docs/architecture_overview.md)
 
 # System Patterns
 <!-- Entries below should be added reverse chronologically (newest first) -->
@@ -109,6 +115,11 @@ graph TD
 ### [2025-04-29 19:46:07] Decision: UI Approach (Revised)
 - **Decision:** Implement the user interface as **CLI-only**. File review will be handled by outputting lists/reports and allowing users to open specific files in external editors (e.g., Vim, VS Code) based on paths provided by the CLI.
 - **Rationale:** Aligns with user preference for simplicity and avoids the complexity of developing/maintaining a separate Web UI or Desktop App. Leverages user familiarity with existing tools for file inspection. Focuses development effort on core backend functionality.
+### [2025-04-30 01:33:20] - DocsWriter: Core System Documentation
+- **Status:** Completed
+- **Details:** Created initial user-facing documentation for the core Storage Hygiene system, including README, configuration guide, and architecture overview.
+- **Files:** `README.md`, `docs/configuration.md`, `docs/architecture_overview.md`
+- **Related:** Task: Create user-facing documentation [2025-04-30 01:28:23]
 - **Alternatives Considered:** Web App UI (rejected based on user feedback), Desktop App (rejected due to complexity).
 - **Related Components:** CLI Interface (replaces Staging & Review UI), Core Engine components.
 - **Reference:** ADR-001 (Revised)
