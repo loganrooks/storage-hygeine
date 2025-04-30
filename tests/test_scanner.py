@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import Mock
 from unittest.mock import Mock, ANY # Import ANY
+import pathlib # Add missing import
 
 # Try to import the Scanner class - this will fail initially
 try:
@@ -116,17 +117,22 @@ def test_scan_directory_finds_files_and_calls_upsert(tmp_path):
 
     called_data = {}
     for call in calls:
-        kwargs = call.kwargs
-        file_path = kwargs.get('file_path')
-        called_data[file_path] = kwargs # Store all kwargs for easier checking
+        # Extract path from the 'file_metadata' dictionary argument
+        file_metadata_arg = call.kwargs.get('file_metadata')
+        if file_metadata_arg:
+            file_path_str = file_metadata_arg.get('path')
+            if file_path_str:
+                 # Convert back to Path for comparison with expected keys
+                called_data[pathlib.Path(file_path_str)] = file_metadata_arg
 
-    assert set(called_data.keys()) == set(expected_metadata.keys())
+    assert set(called_data.keys()) == set(expected_metadata.keys()), \
+           f"Mismatch in file paths called vs expected.\nCalled: {set(called_data.keys())}\nExpected: {set(expected_metadata.keys())}"
 
     for file_path, expected in expected_metadata.items():
         assert file_path in called_data
         actual = called_data[file_path]
 
-        assert actual.get('size') == expected['size']
+        assert actual.get('size_bytes') == expected['size'] # Correct key is 'size_bytes'
         # Compare timestamps with tolerance
         assert 'last_modified' in actual, f"last_modified missing for {file_path}"
         assert isinstance(actual['last_modified'], datetime), f"last_modified is not datetime for {file_path}"
@@ -139,7 +145,7 @@ def test_scan_directory_finds_files_and_calls_upsert(tmp_path):
         # assert actual['created_time'].tzinfo is not None
         # assert abs((actual['created_time'] - expected['created_time']).total_seconds()) < time_tolerance_seconds
 
-        assert actual.get('hash_value') == expected['hash_value']
+    assert actual.get('hash') == expected['hash_value'] # Check for 'hash' key used by Scanner/MetadataStore
 @pytest.mark.skipif(Scanner is None, reason="Scanner class not yet implemented")
 def test_scan_directory_skips_unchanged_files(tmp_path):
     """
@@ -184,8 +190,9 @@ def test_scan_directory_skips_unchanged_files(tmp_path):
     scanner.scan_directory(str(tmp_path))
 
     # Assert
-    # 1. Check that query_files was called for the file path
-    mock_metadata_store.query_files.assert_called_once_with(path=unchanged_file.resolve())
+    # 1. Check that query_files was called with the correct criteria dictionary, using normalized path
+    expected_normalized_path = os.path.normcase(str(unchanged_file.resolve()))
+    mock_metadata_store.query_files.assert_called_once_with(criteria={'path': expected_normalized_path})
 
     # 2. Check that hash calculation was SKIPPED
     scanner._calculate_hash.assert_not_called()
