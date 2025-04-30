@@ -148,9 +148,12 @@ def main():
                     # Pass the effective_dry_run value as an override
                     action_executor.execute_actions(analysis_results, dry_run_override=effective_dry_run)
                     logger.info("Action execution complete.")
-                except Exception as e:
-                    logger.error(f"Error during action execution: {e}", exc_info=True)
-                    sys.exit(1) # Exit if actions fail within the 'with' block
+                except OSError as e: # Catch critical file system errors during actions
+                    logger.critical(f"Critical OS error during action execution: {e}", exc_info=True)
+                    sys.exit(1) # Exit immediately on critical OS errors
+                except Exception as e: # Catch other unexpected errors during actions
+                    logger.error(f"Unexpected error during action execution: {e}", exc_info=True)
+                    sys.exit(1) # Exit on other unexpected action errors too
 
     # This except block catches errors from MetadataStore initialization or the 'with' block itself
     except Exception as e:

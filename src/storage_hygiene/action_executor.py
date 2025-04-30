@@ -50,6 +50,7 @@ class ActionExecutor:
             print(f"Using dry_run from config: {dry_run}") # Placeholder log
 
         staging_dir_path = Path(staging_dir) # Convert to Path object
+        moved_files_this_run = set() # Track files moved in this execution
 
         # Action loop and dispatch using handler map
         # Iterate through the dictionary provided by AnalysisEngine
@@ -57,9 +58,26 @@ class ActionExecutor:
             handler = self._action_handlers.get(action_type)
             if handler:
                 for action_details in file_list: # Process each file for this action type
+                    file_path_str = action_details.get('path')
+                    if not file_path_str:
+                        print(f"Warning: Skipping action {action_type} due to missing path: {action_details}")
+                        # self.logger.warning(f"Skipping action {action_type} due to missing path: {action_details}")
+                        continue
+
+                    # Check if file was already moved by a previous action in this run
+                    if file_path_str in moved_files_this_run:
+                        print(f"Warning: File '{file_path_str}' already processed by a previous action in this run. Skipping {action_type}.")
+                        # self.logger.warning(f"File '{file_path_str}' already processed by a previous action in this run. Skipping {action_type}.")
+                        continue
+
                     try:
                         # Pass the final dry_run value to the handler
                         handler(action_details, staging_dir_path, dry_run)
+                        # If handler involves a move and succeeds, add path to set
+                        # Currently, all handlers call _stage_file which handles the move
+                        # We rely on _stage_file raising OSError on failure, preventing this line from being reached
+                        if not dry_run and action_type in ['stage_duplicate', 'review_large', 'review_old']:
+                             moved_files_this_run.add(file_path_str)
                     except OSError as e: # Catch OSError specifically
                         # Log the critical file system error
                         print(f"Critical error during action {action_type} for {action_details.get('path')}: {e}")
