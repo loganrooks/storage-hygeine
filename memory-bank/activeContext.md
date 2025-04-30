@@ -1,5 +1,6 @@
 # Active Context
 <!-- Entries below should be added reverse chronologically (newest first) -->
+[2025-04-30 01:05:59] - TDD - Task Update - Completed TDD cycles for adding comprehensive integration tests for main workflow. Added tests for config variations, scanning variations, analysis accuracy, non-dry run multi-match, error handling (permission), and CLI args (multi-target, alt DB). All 46 tests pass. Preparing completion.
 [2025-04-30 00:26:41] - Debug - Task Completed - Investigated and fixed the remaining 10 pytest failures. All 39 tests now pass. Issues involved integration test logic (staging paths, invalid YAML handling), unit test assertions (hash key), and error propagation in main.py. [See Issue: Pytest-Failures-Remaining-10 in debug.md]
 [2025-04-30 00:14:56] - Debug - Task Update - Applied fixes for remaining 13 pytest failures (path normalization, error propagation, test assertions). Preparing completion. [See Issue: Pytest-Failures-Remaining-13 in debug.md]
 [2025-04-30 00:05:15] - Debug - Task Completed - Fixed 16 pytest failures across multiple components (ActionExecutor, AnalysisEngine, Scanner, MetadataStore, Main Workflow, Tests). [See Issue: Pytest-Failures-20250430 in debug.md]

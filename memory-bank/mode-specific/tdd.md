@@ -1,6 +1,65 @@
 # TDD Specific Memory
 <!-- Entries below should be added reverse chronologically (newest first) -->
 
+### Test Execution: Integration - [2025-04-30 01:05:59]
+- **Trigger**: Manual TDD Cycle 8 (CLI Alt DB Non-Dry Run) - Post-Fix
+- **Outcome**: PASS / **Summary**: [46 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Confirmed fix for `test_main_workflow_multiple_targets` assertion and verified `test_main_workflow_non_dry_run_alt_db` passes.
+
+### Test Execution: Integration - [2025-04-30 01:05:01]
+- **Trigger**: Manual TDD Cycle 8 (CLI Alt DB Non-Dry Run) - Initial Run
+- **Outcome**: FAIL / **Summary**: [1 failed, 45 passed]
+- **Failed Tests**: `tests/integration/test_main_workflow.py::test_main_workflow_multiple_targets` (AssertionError: Expected 7 files... found 2)
+- **Notes**: Failure due to incorrect assertion in `test_main_workflow_multiple_targets`, not the newly added test.
+
+### Test Execution: Integration - [2025-04-30 01:03:17]
+- **Trigger**: Manual TDD Cycle 6 (Error Handling - Permission) - Post-Fix Attempt 2
+- **Outcome**: PASS / **Summary**: [44 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_main_workflow_staging_permission_error` passed after correcting assertion to check stdout.
+
+### Test Execution: Integration - [2025-04-30 01:01:01]
+- **Trigger**: Manual TDD Cycle 6 (Error Handling - Permission) - Post-Fix Attempt 1
+- **Outcome**: FAIL / **Summary**: [1 failed, 43 passed]
+- **Failed Tests**: `tests/integration/test_main_workflow.py::test_main_workflow_staging_permission_error` (AssertionError: Expected permission error message not found in stderr)
+- **Notes**: Failure due to logging going to stdout, not stderr.
+
+### Test Execution: Integration - [2025-04-30 00:59:03]
+- **Trigger**: Manual TDD Cycle 5 (Non-Dry Run Multi-Match) - Post-Fix
+- **Outcome**: PASS / **Summary**: [43 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_main_workflow_non_dry_run_multiple_matches` passed after adding logic to `ActionExecutor` to prevent duplicate moves.
+
+### Test Execution: Integration - [2025-04-30 00:57:41]
+- **Trigger**: Manual TDD Cycle 5 (Non-Dry Run Multi-Match) - Initial Run
+- **Outcome**: FAIL / **Summary**: [1 failed, 42 passed]
+- **Failed Tests**: `tests/integration/test_main_workflow.py::test_main_workflow_non_dry_run_multiple_matches` (AssertionError: Script exited with error code 1 - due to FileNotFoundError on second move attempt)
+- **Notes**: Test failed as expected, driving need to prevent duplicate moves in ActionExecutor.
+
+### Test Execution: Integration - [2025-04-30 00:56:26]
+- **Trigger**: Manual TDD Cycle 4 (Config - Alt Staging Path)
+- **Outcome**: PASS / **Summary**: [42 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_main_workflow_different_staging_path` passed.
+
+### Test Execution: Integration - [2025-04-30 00:55:13]
+- **Trigger**: Manual TDD Cycle 3 (Scanning - Empty Subdir) - Post-Assertion Add
+- **Outcome**: PASS / **Summary**: [41 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_main_workflow_scan_variations` passed after adding assertion to check empty subdir is ignored.
+
+### Test Execution: Integration - [2025-04-30 00:53:25]
+- **Trigger**: Manual TDD Cycle 2 (Analysis - Large Threshold)
+- **Outcome**: PASS / **Summary**: [41 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_main_workflow_large_file_threshold_variation` passed.
+
+### Test Execution: Integration - [2025-04-30 00:52:40]
+- **Trigger**: Manual TDD Cycle 1 (Config - Only Old Rule)
+- **Outcome**: PASS / **Summary**: [40 tests passed, 0 failed]
+- **Failed Tests**: None
+- **Notes**: Test `test_main_workflow_only_old_files_rule` passed.
 ## Test Execution Results
 <!-- Append test run summaries using the format below -->
 ### Test Execution: Unit - [2025-04-29 23:02:27]
