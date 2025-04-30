@@ -1,2 +1,4 @@
 pytest
 PyYAML
+duckdb
+pytz
