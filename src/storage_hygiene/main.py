@@ -87,18 +87,34 @@ def main():
             scan_targets = [Path(d) for d in args.target_dirs]
             logger.info(f"Scanning target directories: {', '.join(map(str, scan_targets))}")
             scan_errors = False
+            found_valid_target = False # Track if at least one target is valid
             for target_dir in scan_targets:
                 if not target_dir.is_dir():
                     logger.warning(f"Target directory not found or is not a directory: {target_dir}. Skipping.")
-                    continue
+                    continue # Skip this invalid target
+
+                found_valid_target = True # Mark that we found at least one valid target
                 try:
                     logger.info(f"Scanning {target_dir}...")
                     scanner.scan_directory(target_dir)
                     logger.info(f"Finished scanning {target_dir}.")
-                except Exception as e:
-                    logger.error(f"Error during scanning of {target_dir}: {e}", exc_info=True)
+                except OSError as e: # Catch specific file access errors
+                    logger.error(f"Error accessing file during scan of {target_dir}: {e}", exc_info=True)
                     scan_errors = True
-                    # Continue scanning other directories even if one fails
+                    # Continue scanning other files/directories
+                except ValueError as e: # Catch critical data errors (e.g., from MetadataStore upsert)
+                     logger.critical(f"Critical data error during scanning of {target_dir}: {e}", exc_info=True)
+                     scan_errors = True # Mark error occurred
+                     raise # Re-raise to halt execution via outer try/except
+                except Exception as e: # Catch other unexpected errors during scan
+                    logger.error(f"Unexpected error during scanning of {target_dir}: {e}", exc_info=True)
+                    scan_errors = True
+                    # Continue scanning other directories for now
+
+            if not found_valid_target:
+                 logger.error("No valid target directories found to scan.")
+                 sys.exit(1) # Exit if no valid targets were provided/found
+
             if scan_errors:
                 logger.warning("Errors occurred during scanning. Proceeding with analysis, but results may be incomplete.")
             logger.info("Scanning phase complete.")
@@ -126,7 +142,7 @@ def main():
             else:
                 logger.info("Initializing action executor...")
                 # Instantiate without dry_run, as it's handled in execute_actions
-                action_executor = ActionExecutor(config_manager)
+                action_executor = ActionExecutor(config_manager, metadata_store) # Pass metadata_store
                 logger.info(f"Executing actions... (Dry Run: {effective_dry_run})")
                 try:
                     # Pass the effective_dry_run value as an override
