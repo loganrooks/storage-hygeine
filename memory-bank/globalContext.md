@@ -21,6 +21,10 @@
 # Decision Log
 <!-- Entries below should be added reverse chronologically (newest first) -->
 
+### [2025-04-29 20:19:26] Decision: Mandatory Git Commits on Task Success
+- **Decision:** Modes modifying project files (code, docs, etc.) must commit project changes AND memory-bank updates in two separate commits upon successful task completion and verification.
+- **Rationale:** Ensures version control hygiene, links project state to memory bank state, and provides clear history.
+- **Implementation:** SPARC orchestrator will include explicit instructions in `new_task` messages for relevant modes.
 ### [2025-04-29 19:34:11] Decision: AI Integration Timing
 - **Decision:** Implement AI Organization Assistant as a Post-MVP feature.
 - **Rationale:** Core functionality (duplicate/large/old file detection, migration) provides significant value independently. Deferring AI complexity allows focus on core stability, performance, and user experience first. Reduces initial development scope and potential costs (API usage).
